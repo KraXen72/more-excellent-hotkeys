@@ -98,14 +98,14 @@ export class TextTransformer {
 		this.editor = editor;
 	}
 
-	swapCursorsIfNeeded(from: EditorPosition, to: EditorPosition) {
+	swapCursorsIfNeeded(from: EditorPosition, to: EditorPosition): Range {
 		// selection was started from the back - reverse it
 		if (from.line > to.line || from.line === to.line && from.ch > to.ch) {
 			const tmp = from;
 			from = to;
 			to = tmp;
 		}
-		return { from, to } satisfies Range as Range;
+		return { from, to } satisfies Range;
 	}
 
 	/** main function to transform text */
@@ -113,12 +113,12 @@ export class TextTransformer {
 		if (this.inProgress) return; // large operations (1/2+ of a note) can be slow, rather noop.
 		this.inProgress = true;
 		// get & copy all selections for multi-cursor/multi-selection operations
-		const selections = this.editor.listSelections().map(_sel => {
+		const selections: Range[] = this.editor.listSelections().map(_sel => {
 			const { from, to } = this.swapCursorsIfNeeded(
 				{ line: _sel.anchor.line, ch: _sel.anchor.ch }, 
 				{ line: _sel.head.line, ch: _sel.head.ch }
 			);
-			return { from: {...from}, to: {...to} } satisfies Range as Range;
+			return { from: {...from}, to: {...to} } satisfies Range;
 		});
 
 		for (let i = 0; i < selections.length; i++) {
@@ -169,7 +169,7 @@ export class TextTransformer {
 	}
 
 	/** Update remaining selections after a style has been applied or removed, accounting for length changes */
-	updateSelectionOffsets(currentSel: Range, adjustSel: Range, originalFromLineLength: number, originalToLineLength: number) {
+	updateSelectionOffsets(currentSel: Range, adjustSel: Range, originalFromLineLength: number, originalToLineLength: number): Range {
 		// if either the starting line or the ending line was modified, adjust the selection
 
 		if (adjustSel.from.line === currentSel.from.line) { // the 'from' line was modified, adjust it
@@ -200,7 +200,7 @@ export class TextTransformer {
 	}
 
 	/** trim the selection (Range) to not include stuff we don't want */
-	trimSmartSelection(sel: Range) {
+	trimSmartSelection(sel: Range): Range {
 		let from = sel.from;
 		let to = sel.to;
 
@@ -231,7 +231,7 @@ export class TextTransformer {
 			}
 		}
 		// console.log("after trimming", `'${this.editor.getRange(from, to)}'`);
-		return { from, to } satisfies Range as Range;
+		return { from, to } satisfies Range;
 	}
 
 	/** 
@@ -276,7 +276,7 @@ export class TextTransformer {
 	}
 
 	// pre-trim whitespace (correct selection lmao)
-	whitespacePretrim(sel: Range) {
+	whitespacePretrim(sel: Range): Range {
 		const selection = this.trimString(this.editor.getRange(sel.from, sel.to));
 		const whitespaceBefore = (selection.match(/^\s+/) || [""])[0];
 		const whitespaceAfter = (selection.match(/\s+$/) || [""])[0];
@@ -284,11 +284,11 @@ export class TextTransformer {
 		return {
 			from: { line: sel.from.line, ch: sel.from.ch + whitespaceBefore.length },
 			to: { line: sel.to.line, ch: sel.to.ch - whitespaceAfter.length },
-		} satisfies Range as Range;
+		} satisfies Range;
 	}
 
 	/** get the Range of the smart selection created by expanding from cursor*/
-	getSmartSelectionBare(original: Range, trim: boolean) {
+	getSmartSelectionBare(original: Range, trim: boolean): Range {
 		const cursor = original.to;
 		const lineText = this.editor.getLine(cursor.line);
 
@@ -305,11 +305,11 @@ export class TextTransformer {
 		} satisfies Range;
 
 		if (trim) sel = this.trimSmartSelection(sel);
-		return sel as Range;
+		return sel satisfies Range;
 	}
 
 	/** get the Range of the smart selection created by expanding the current one*/
-	getSmartSelectionRange(original: Range, trim: boolean) {
+	getSmartSelectionRange(original: Range, trim: boolean): Range {
 		const { from, to } = this.swapCursorsIfNeeded({...original.from}, {...original.to});
 		let startCursor = from;
 		let endCursor = to;
@@ -339,11 +339,11 @@ export class TextTransformer {
 		let sel = {
 			from: { line: startCursor.line, ch: startCursor.ch - before.length},
 			to: { line: endCursor.line, ch: endCursor.ch + after.length },
-		} satisfies Range
+		}
 		
 		// trim selection of stuff we don't want, if trim is true
 		if (trim) sel = this.trimSmartSelection(sel);
-		return sel as Range;
+		return sel satisfies Range;
 	}
 
 	/** get an offset cursor */
