@@ -15,6 +15,13 @@ interface Range {
 	to: EditorPosition;
 }
 
+interface BareToggleContext {
+	op: StyleOperations;
+	line: number;
+	originalCursorCh: number;
+	styledLine: string;
+}
+
 const trimBefore = [
 	"###### ",
 	"##### ",
@@ -91,6 +98,7 @@ export class TextTransformer {
 	trimmedAfterLength: number = 0;
 
 	inProgress: boolean = false;
+	lastBareToggleContext: BareToggleContext | null = null;
 	settings: TextTransformerSettings = {
 		useAsteriskForItalics: false,
 	};
@@ -555,6 +563,15 @@ export class TextTransformer {
 		return this.removeStyleMarkers(value, op, prefix, suffix);
 	}
 
+	getCursorWithLineClamp(line: number, ch: number) {
+		return { line, ch: Math.max(0, Math.min(ch, this.editor.getLine(line).length)) } satisfies EditorPosition;
+	}
+
+	setCursorWithRetry(pos: EditorPosition) {
+		this.editor.setCursor(pos);
+		setTimeout(() => this.editor.setCursor(pos), 0);
+	}
+
 	/** either add apply or remove a style for a given string */
 	#modifyLine(selVal: string, prefix: string, suffix: string, modification: 'apply' | 'remove', op: StyleOperations, trim = false) {
 		const { trimmedBefore, result, trimmedAfter } = this.#trimStringWithParts(selVal);
@@ -593,6 +610,7 @@ export class TextTransformer {
 		}
 
 		if (isSelection) {
+			this.lastBareToggleContext = null;
 			this.editor.setSelection(smartSel.from, smartSel.to); // set to expanded selection
 			const selVal = this.editor.getSelection(); // get new content
 			const multiline = sel2.from.line !== sel2.to.line;
@@ -613,12 +631,36 @@ export class TextTransformer {
 			setTimeout(() => this.editor.setSelection(restoreSel.from, restoreSel.to), 0)
 		} else {
 			const cursor = sel2.to; // save cursor
+			const lineBefore = this.editor.getLine(cursor.line);
 			const selVal = this.editor.getRange(smartSel.from, smartSel.to)
 
 			const newVal = this.modifyStyleValue(selVal, op, modification, prefix, suffix);
 			this.editor.replaceRange(newVal, smartSel.from, smartSel.to);
 
-			this.editor.setCursor(this.offsetCursor(cursor, offsets.pre)); // restore cursor (offset by prefix)
+			let restoredCursor = this.offsetCursor(cursor, offsets.pre);
+			if (
+				modification === 'remove'
+				&& this.lastBareToggleContext
+				&& this.lastBareToggleContext.op === op
+				&& this.lastBareToggleContext.line === cursor.line
+				&& this.lastBareToggleContext.styledLine === lineBefore
+				&& cursor.ch >= smartSel.from.ch
+				&& cursor.ch <= smartSel.to.ch
+			) {
+				restoredCursor = this.getCursorWithLineClamp(cursor.line, this.lastBareToggleContext.originalCursorCh);
+			}
+			this.setCursorWithRetry(restoredCursor); // restore cursor (offset by prefix)
+
+			if (modification === 'apply') {
+				this.lastBareToggleContext = {
+					op,
+					line: restoredCursor.line,
+					originalCursorCh: cursor.ch,
+					styledLine: this.editor.getLine(restoredCursor.line),
+				};
+			} else {
+				this.lastBareToggleContext = null;
+			}
 		}
 	}
 

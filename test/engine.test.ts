@@ -448,6 +448,41 @@ describe('non-stackable formatting', () => {
 	});
 });
 
+describe('table-like cursor behavior', () => {
+	it('bold cycle in table-like row should preserve cursor and content', () => {
+		const editor = setupTest("| Low shelf   | 105 |");
+		editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "| **Low** shelf   | 105 |");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "| Low shelf   | 105 |");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 4 } });
+	});
+
+	it('bold apply should recover cursor when first restore is externally overridden', async () => {
+		const editor = setupTest("| Low shelf   | 105 |");
+		editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
+
+		const originalSetCursor = editor.setCursor.bind(editor);
+		let firstRestoreCall = true;
+		(editor as unknown as { setCursor: typeof editor.setCursor }).setCursor = ((pos: EditorPosition | number, ch?: number) => {
+			if (firstRestoreCall) {
+				firstRestoreCall = false;
+				originalSetCursor({ line: 0, ch: 1 });
+				return;
+			}
+			originalSetCursor(pos, ch);
+		}) as typeof editor.setCursor;
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "| **Low** shelf   | 105 |");
+		await new Promise(resolve => setTimeout(resolve, 0));
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
+	});
+});
+
 describe('Multi-line Operations', () => {
 	it('highlight: should un-highlight headings when selection starts/ends on blank lines', () => {
 		const editor = setupTest("before\n\n# ==Heading A==\n## ==Heading B==\n\nafter");
