@@ -1,15 +1,13 @@
 import { App, Editor, Plugin, PluginSettingTab, Setting } from 'obsidian';
-import { TextTransformer } from './engine';
+import { TextTransformer, TextTransformerSettings } from './engine';
 
 // Remember to rename these classes and interfaces!
 
-interface SmarterHotkeysSettings {
-	mySetting: string;
-}
+interface SmarterHotkeysSettings extends TextTransformerSettings {}
 
 const DEFAULT_SETTINGS: SmarterHotkeysSettings = {
-	mySetting: 'default'
-}
+	useAsteriskForItalics: false,
+};
 
 const TextTransformOperations = [
   "bold",
@@ -43,7 +41,7 @@ export default class SmarterHotkeys extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
-		this.engine = new TextTransformer();
+		this.engine = new TextTransformer(this.settings);
 
 		// This adds an editor command that can perform some operation on the current editor instance
 		for (const _op of TextTransformOperations) {
@@ -58,8 +56,7 @@ export default class SmarterHotkeys extends Plugin {
 			});
 		}
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new SmarterHotkeysSettingTab(this.app, this));
 	}
 
 	onunload() {
@@ -75,7 +72,7 @@ export default class SmarterHotkeys extends Plugin {
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
+class SmarterHotkeysSettingTab extends PluginSettingTab {
 	plugin: SmarterHotkeys;
 
 	constructor(app: App, plugin: SmarterHotkeys) {
@@ -89,13 +86,13 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
+			.setName('Use * for italics')
+			.setDesc('Use asterisks instead of underscores for italic toggles.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.useAsteriskForItalics)
 				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
+					this.plugin.settings.useAsteriskForItalics = value;
+					this.plugin.engine.setSettings(this.plugin.settings);
 					await this.plugin.saveSettings();
 				}));
 	}

@@ -1,6 +1,9 @@
 import type { ValidOperations, StyleOperations } from "./main";
 import { Editor, EditorPosition } from "obsidian";
 
+export interface TextTransformerSettings {
+	useAsteriskForItalics: boolean;
+}
 
 interface StyleConfig {
 	start: string;
@@ -38,16 +41,24 @@ const trimAfter = [
 	"]"
 ];
 
-const styleConfig: Record<StyleOperations, StyleConfig> = {
+const baseStyleConfig: Omit<Record<StyleOperations, StyleConfig>, "italics"> = {
 	bold: { start: '**', end: '**' },
 	highlight: { start: '==', end: '==' },
-	italics: { start: '_', end: '_' },
 	inlineCode: { start: '`', end: '`' },
 	comment: { start: '%%', end: '%%' },
 	strikethrough: { start: '~~', end: '~~' },
 	underscore: { start: '<u>', end: '</u>' },
 	// inlineMath: { start: '$', end: '$' },
 };
+
+const stackableWith: Partial<Record<StyleOperations, readonly StyleOperations[]>> = {
+	bold: ["italics", "strikethrough", "highlight"],
+	italics: ["bold", "strikethrough", "highlight"],
+	strikethrough: ["bold", "italics"],
+	highlight: ["bold", "italics"],
+};
+
+const styleOperations = [...Object.keys(baseStyleConfig), "italics"] as StyleOperations[];
 
 
 // for now, you have to manually update these
@@ -85,8 +96,13 @@ export class TextTransformer {
 	endMarkerRegex: RegExp;
 
 	inProgress: boolean = false;
+	settings: TextTransformerSettings = {
+		useAsteriskForItalics: false,
+	};
 	
-	constructor() {
+	constructor(settings?: Partial<TextTransformerSettings>) {
+		this.setSettings(settings);
+
 		// the order of the regexes matters, since longer ones should be checked first (- [ ] before -)
 		this.trimBeforeRegexes = trimBefore.map(x => new RegExp("^" + escapeRegExp(x)));
 		this.trimBeforeRegexes.splice(8, 0, /- \[\S\] /); // checked & custom checked checkboxes
@@ -95,6 +111,21 @@ export class TextTransformer {
 		// console.log(reg_before, reg_after)
 
 		this.trimAfterRegexes = trimAfter.map(x => new RegExp(escapeRegExp(x) + "$"));
+	}
+
+	setSettings(settings?: Partial<TextTransformerSettings>) {
+		this.settings = {
+			useAsteriskForItalics: false,
+			...settings,
+		};
+	}
+
+	getStyleConfig(op: StyleOperations) {
+		if (op === "italics") {
+			const marker = this.settings.useAsteriskForItalics ? "*" : "_";
+			return { start: marker, end: marker };
+		}
+		return baseStyleConfig[op];
 	}
 
 	setEditor(editor: Editor) {
@@ -146,8 +177,8 @@ export class TextTransformer {
 				continue;
 			}
 
-			this.startMarkerRegex = new RegExp(`^(?:${escapeRegExp(styleConfig[op].start)})+`);
-			this.endMarkerRegex = new RegExp(`(?:${escapeRegExp(styleConfig[op].end)})+$`);
+			this.startMarkerRegex = new RegExp(`^(?:${escapeRegExp(this.getStyleConfig(op).start)})+`);
+			this.endMarkerRegex = new RegExp(`(?:${escapeRegExp(this.getStyleConfig(op).end)})+$`);
 
 			const checkSel = this.getSmartSelection(sel, false);
 			const smartSel = this.getSmartSelection(sel);
@@ -161,14 +192,19 @@ export class TextTransformer {
 	
 			// try removing styles first
 			let stylesRemoved = false;
-			const removeTarget = this.insideStyle(checkSel, op)
-				? checkSel
-				: this.insideStyle(smartSel, op) || this.multilineInsideStyle(smartSel, op)
-					? smartSel
-					: false;
+			const removeTarget = this.getStyleRemovalTarget(checkSel, smartSel, op);
 			if (removeTarget) {
 				this.removeStyle(sel, removeTarget, op, isSelection);
 				stylesRemoved = true;
+			} else {
+				const incompatibleStyle = this.findIncompatibleStyle(checkSel, smartSel, op);
+				if (incompatibleStyle) {
+					const incompatibleTarget = this.getStyleRemovalTarget(checkSel, smartSel, incompatibleStyle);
+					if (incompatibleTarget) {
+						this.removeStyle(sel, incompatibleTarget, incompatibleStyle, isSelection);
+						stylesRemoved = true;
+					}
+				}
 			}
 	
 			// don't apply the style if we're only toggling and we just removed the style
@@ -184,6 +220,25 @@ export class TextTransformer {
 			}
 		}
 		this.inProgress = false;
+	}
+
+	getStyleRemovalTarget(checkSel: Range, smartSel: Range, op: StyleOperations) {
+		if (this.insideStyle(checkSel, op)) return checkSel;
+		if (this.insideStyle(smartSel, op) || this.multilineInsideStyle(smartSel, op)) return smartSel;
+		return false;
+	}
+
+	isStackable(source: StyleOperations, target: StyleOperations) {
+		if (source === target) return true;
+		return stackableWith[source]?.includes(target) ?? false;
+	}
+
+	findIncompatibleStyle(checkSel: Range, smartSel: Range, op: StyleOperations) {
+		for (const style of styleOperations) {
+			if (style === op || this.isStackable(op, style)) continue;
+			if (this.getStyleRemovalTarget(checkSel, smartSel, style)) return style;
+		}
+		return false;
 	}
 
 	/** Update remaining selections after a style has been applied or removed, accounting for length changes */
@@ -206,9 +261,10 @@ export class TextTransformer {
 	insideStyle(sel: Range, op: StyleOperations) {
 		const value = this.editor.getRange(sel.from, sel.to);
 		if (op === "italics") {
-			return /^[_*]+/.test(value) && /[_*]+$/.test(value);
+			return this.isItalicsWrapped(value);
 		}
-		return value.startsWith(styleConfig[op].start) && value.endsWith(styleConfig[op].end);
+		const style = this.getStyleConfig(op);
+		return value.startsWith(style.start) && value.endsWith(style.end);
 	}
 
 	multilineInsideStyle(sel: Range, op: StyleOperations) {
@@ -220,9 +276,32 @@ export class TextTransformer {
 		return nonEmptyLines.every((line) => {
 			const trimmed = this.trimString(line).trim();
 			if (trimmed.length === 0) return true;
-			if (op === "italics") return /^[_*]+/.test(trimmed) && /[_*]+$/.test(trimmed);
-			return trimmed.startsWith(styleConfig[op].start) && trimmed.endsWith(styleConfig[op].end);
+			if (op === "italics") return this.isItalicsWrapped(trimmed);
+			const style = this.getStyleConfig(op);
+			return trimmed.startsWith(style.start) && trimmed.endsWith(style.end);
 		});
+	}
+
+	isItalicsWrapped(value: string) {
+		const startMarkers = value.match(/^[_*]+/)?.[0] ?? "";
+		const endMarkers = value.match(/[_*]+$/)?.[0] ?? "";
+		if (!startMarkers || !endMarkers) return false;
+		if (startMarkers.includes("_") || endMarkers.includes("_")) return true;
+		return startMarkers.length % 2 === 1 && endMarkers.length % 2 === 1;
+	}
+
+	removeItalicsMarkers(value: string) {
+		let next = value;
+		if (/^_+/.test(next) && /_+$/.test(next)) {
+			next = next.replace(/^_+/, "").replace(/_+$/, "");
+		}
+
+		const startMarkers = next.match(/^\*+/)?.[0] ?? "";
+		const endMarkers = next.match(/\*+$/)?.[0] ?? "";
+		if (startMarkers.length % 2 === 1 && endMarkers.length % 2 === 1) {
+			next = next.replace(/^\*/, "").replace(/\*$/, "");
+		}
+		return next;
 	}
 
 	/** get the Range of the smart selection created by expanding the current one / from cursor*/
@@ -432,7 +511,7 @@ export class TextTransformer {
 		let newVal = modification === 'apply'
 			? prefix + selVal + suffix
 			: op === "italics"
-				? selVal.replace(/^[_*]+/, "").replace(/[_*]+$/, "")
+				? this.removeItalicsMarkers(selVal)
 				: selVal
 					.replace(new RegExp("^" + escapeRegExp(prefix)), "")
 					.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
@@ -456,8 +535,7 @@ export class TextTransformer {
 		// "fix" user's selection lmao (remove whitespaces) so it doesen't look goofy afterwards
 		const sel2 = this.whitespacePretrim(original);
 
-		const prefix = styleConfig[op].start;
-		const suffix = styleConfig[op].end;
+		const { start: prefix, end: suffix } = this.getStyleConfig(op);
 
 		// used when restoring previous cursor / selection position
 		// account for any whitespace we trimmed in cursor position
@@ -494,7 +572,7 @@ export class TextTransformer {
 			const newVal = modification === 'apply'
 				? prefix + selVal + suffix
 				: op === "italics"
-					? selVal.replace(/^[_*]+/, "").replace(/[_*]+$/, "")
+					? this.removeItalicsMarkers(selVal)
 					: selVal
 						.replace(new RegExp("^" + escapeRegExp(prefix)), "")
 						.replace(new RegExp(escapeRegExp(suffix) + "$"), "");

@@ -133,6 +133,7 @@ const transformer = new TextTransformer();
 // Helper function to setup test with shared transformer
 function setupTest(content: string) {
 	const mockEditor = new MockEditor(content);
+	transformer.setSettings({ useAsteriskForItalics: false });
 	transformer.setEditor(mockEditor as unknown as Editor);
 	return mockEditor;
 }
@@ -223,6 +224,15 @@ describe('bare cursor operations', () => {
 		transformer.transformText('italics');
 		assert.strictEqual(loneParens.getEditorContent(), "(__)");
 	});
+
+	it('italics: should use asterisks when setting is enabled', () => {
+		const editor = setupTest("word  ");
+		transformer.setSettings({ useAsteriskForItalics: true });
+		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "word ** ");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
+	});
 });
 
 describe('selection operations', () => {
@@ -267,6 +277,18 @@ describe('selection operations', () => {
 		assert.strictEqual(mixed.getEditorContent(), "hello");
 	});
 
+	it('italics: should apply and remove with asterisks when enabled', () => {
+		const editor = setupTest("word");
+		transformer.setSettings({ useAsteriskForItalics: true });
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "*word*");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "word");
+	});
+
 	// it('should keep pure whitespace selection unchanged', () => {
 	// 	const editor = setupTest("word    word");
 	// 	editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 7 });
@@ -274,6 +296,69 @@ describe('selection operations', () => {
 	// 	assert.strictEqual(editor.getEditorContent(), "word    word");
 	// 	assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 7 } })
 	// });
+});
+
+describe('stackable formatting', () => {
+	it('should stack italics on top of bold and unstack in toggle order', () => {
+		const editor = setupTest("word");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "_**word**_");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "word");
+	});
+
+	it('should stack all configured compatible pairs and unstack back to the first style', () => {
+		const cases: Array<{
+			first: 'bold' | 'italics';
+			second: 'strikethrough' | 'highlight';
+			stacked: string;
+			firstOnly: string;
+		}> = [
+			{ first: 'bold', second: 'strikethrough', stacked: '~~**word**~~', firstOnly: '**word**' },
+			{ first: 'italics', second: 'strikethrough', stacked: '~~_word_~~', firstOnly: '_word_' },
+			{ first: 'bold', second: 'highlight', stacked: '==**word**==', firstOnly: '**word**' },
+			{ first: 'italics', second: 'highlight', stacked: '==_word_==', firstOnly: '_word_' },
+		];
+
+		for (const tc of cases) {
+			const editor = setupTest("word");
+			editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+			transformer.transformText(tc.first);
+			assert.strictEqual(editor.getEditorContent(), tc.firstOnly);
+
+			transformer.transformText(tc.second);
+			assert.strictEqual(editor.getEditorContent(), tc.stacked);
+
+			transformer.transformText(tc.second);
+			assert.strictEqual(editor.getEditorContent(), tc.firstOnly);
+		}
+	});
+});
+
+describe('non-stackable formatting', () => {
+	it('should consume first toggle by removing existing non-stackable style', () => {
+		const editor = setupTest("word");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+
+		transformer.transformText('comment');
+		assert.strictEqual(editor.getEditorContent(), "word");
+
+		transformer.transformText('comment');
+		assert.strictEqual(editor.getEditorContent(), "%%word%%");
+	});
 });
 
 describe('Multi-line Operations', () => {
