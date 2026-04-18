@@ -18,6 +18,9 @@ this plugin adds editor commands you can bind to your own hotkeys (no default bi
 - Toggle underscore
 - Remove formatting
 
+## settings
+- Use `*` for italics (default: off, `_` is used)
+
 ## other
 - thanks to Berggeit for the name
 - thanks to [obsidian-smarter-md-hotkeys](https://github.com/chrisgrieser/obsidian-smarter-md-hotkeys) for the idea and some code
