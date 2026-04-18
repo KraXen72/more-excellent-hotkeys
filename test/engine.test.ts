@@ -298,6 +298,75 @@ describe('selection operations', () => {
 	// });
 });
 
+describe('style roundtrip regression', () => {
+	it('should roundtrip every style on bare cursor', () => {
+		const cases: Array<{
+			op: 'bold' | 'highlight' | 'italics' | 'inlineCode' | 'comment' | 'strikethrough' | 'underscore';
+			expectedApplied: string;
+		}> = [
+			{ op: 'bold', expectedApplied: '**word**' },
+			{ op: 'highlight', expectedApplied: '==word==' },
+			{ op: 'italics', expectedApplied: '_word_' },
+			{ op: 'inlineCode', expectedApplied: '`word`' },
+			{ op: 'comment', expectedApplied: '%%word%%' },
+			{ op: 'strikethrough', expectedApplied: '~~word~~' },
+			{ op: 'underscore', expectedApplied: '<u>word</u>' },
+		];
+
+		for (const tc of cases) {
+			const editor = setupTest("word");
+			editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+			transformer.transformText(tc.op);
+			assert.strictEqual(editor.getEditorContent(), tc.expectedApplied);
+
+			transformer.transformText(tc.op);
+			assert.strictEqual(editor.getEditorContent(), "word");
+		}
+	});
+
+	it('should roundtrip every style on explicit selection', () => {
+		const cases: Array<{
+			op: 'bold' | 'highlight' | 'italics' | 'inlineCode' | 'comment' | 'strikethrough' | 'underscore';
+			expectedApplied: string;
+		}> = [
+			{ op: 'bold', expectedApplied: '**word**' },
+			{ op: 'highlight', expectedApplied: '==word==' },
+			{ op: 'italics', expectedApplied: '_word_' },
+			{ op: 'inlineCode', expectedApplied: '`word`' },
+			{ op: 'comment', expectedApplied: '%%word%%' },
+			{ op: 'strikethrough', expectedApplied: '~~word~~' },
+			{ op: 'underscore', expectedApplied: '<u>word</u>' },
+		];
+
+		for (const tc of cases) {
+			const editor = setupTest("word");
+			editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 4 });
+
+			transformer.transformText(tc.op);
+			assert.strictEqual(editor.getEditorContent(), tc.expectedApplied);
+
+			transformer.transformText(tc.op);
+			assert.strictEqual(editor.getEditorContent(), "word");
+		}
+	});
+
+	it('italics in asterisk mode: should still stack and unstack with bold', () => {
+		const editor = setupTest("word");
+		transformer.setSettings({ useAsteriskForItalics: true });
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "***word***");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+	});
+});
+
 describe('stackable formatting', () => {
 	it('should stack italics on top of bold and unstack in toggle order', () => {
 		const editor = setupTest("word");

@@ -90,11 +90,6 @@ export class TextTransformer {
 	trimmedBeforeLength: number = 0;
 	trimmedAfterLength: number = 0;
 
-	/** regex to get markers (only this operation type) before a selection */
-	startMarkerRegex: RegExp;
-	/** regex to get markers (only this operation type) after a selection */
-	endMarkerRegex: RegExp;
-
 	inProgress: boolean = false;
 	settings: TextTransformerSettings = {
 		useAsteriskForItalics: false,
@@ -177,9 +172,6 @@ export class TextTransformer {
 				continue;
 			}
 
-			this.startMarkerRegex = new RegExp(`^(?:${escapeRegExp(this.getStyleConfig(op).start)})+`);
-			this.endMarkerRegex = new RegExp(`(?:${escapeRegExp(this.getStyleConfig(op).end)})+$`);
-
 			const checkSel = this.getSmartSelection(sel, false);
 			const smartSel = this.getSmartSelection(sel);
 			const selection = this.editor.getRange(sel.from, sel.to);
@@ -260,11 +252,7 @@ export class TextTransformer {
 
 	insideStyle(sel: Range, op: StyleOperations) {
 		const value = this.editor.getRange(sel.from, sel.to);
-		if (op === "italics") {
-			return this.isItalicsWrapped(value);
-		}
-		const style = this.getStyleConfig(op);
-		return value.startsWith(style.start) && value.endsWith(style.end);
+		return this.isStyleWrapped(value, op);
 	}
 
 	multilineInsideStyle(sel: Range, op: StyleOperations) {
@@ -276,10 +264,14 @@ export class TextTransformer {
 		return nonEmptyLines.every((line) => {
 			const trimmed = this.trimString(line).trim();
 			if (trimmed.length === 0) return true;
-			if (op === "italics") return this.isItalicsWrapped(trimmed);
-			const style = this.getStyleConfig(op);
-			return trimmed.startsWith(style.start) && trimmed.endsWith(style.end);
+			return this.isStyleWrapped(trimmed, op);
 		});
+	}
+
+	isStyleWrapped(value: string, op: StyleOperations) {
+		if (op === "italics") return this.isItalicsWrapped(value);
+		const style = this.getStyleConfig(op);
+		return value.startsWith(style.start) && value.endsWith(style.end);
 	}
 
 	isItalicsWrapped(value: string) {
@@ -475,12 +467,8 @@ export class TextTransformer {
 	calculateOffsets(sel: Range, modification: 'apply' | 'remove', op: StyleOperations, prefix: string, suffix: string) {
 		const selection = this.editor.getRange(sel.from, sel.to)
 
-		const includesMarkersStart = op === "italics"
-			? /^[_*]+/.test(selection)
-			: this.startMarkerRegex.test(selection);
-		const includesMarkersEnd = op === "italics"
-			? /[_*]+$/.test(selection)
-			: this.endMarkerRegex.test(selection);
+		const includesMarkersStart = this.hasStyleMarkerAtStart(selection, op, prefix);
+		const includesMarkersEnd = this.hasStyleMarkerAtEnd(selection, op, suffix);
 		const modifMultiplier = modification === 'remove' ? -1 : 1;
 		const pm = prefix.length * modifMultiplier;
 		const sm = suffix.length * modifMultiplier;
@@ -503,18 +491,34 @@ export class TextTransformer {
 		return { pre, post };
 	}
 
+	hasStyleMarkerAtStart(value: string, op: StyleOperations, marker: string) {
+		if (op === "italics") return /^[_*]+/.test(value);
+		return value.startsWith(marker);
+	}
+
+	hasStyleMarkerAtEnd(value: string, op: StyleOperations, marker: string) {
+		if (op === "italics") return /[_*]+$/.test(value);
+		return value.endsWith(marker);
+	}
+
+	removeStyleMarkers(value: string, op: StyleOperations, prefix: string, suffix: string) {
+		if (op === "italics") return this.removeItalicsMarkers(value);
+		return value
+			.replace(new RegExp("^" + escapeRegExp(prefix)), "")
+			.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+	}
+
+	modifyStyleValue(value: string, op: StyleOperations, modification: 'apply' | 'remove', prefix: string, suffix: string) {
+		if (modification === 'apply') return prefix + value + suffix;
+		return this.removeStyleMarkers(value, op, prefix, suffix);
+	}
+
 	/** either add apply or remove a style for a given string */
 	#modifyLine(selVal: string, prefix: string, suffix: string, modification: 'apply' | 'remove', op: StyleOperations, trim = false) {
 		const { trimmedBefore, result, trimmedAfter } = this.#trimStringWithParts(selVal);
 		if (trim) selVal = result;
 
-		let newVal = modification === 'apply'
-			? prefix + selVal + suffix
-			: op === "italics"
-				? this.removeItalicsMarkers(selVal)
-				: selVal
-					.replace(new RegExp("^" + escapeRegExp(prefix)), "")
-					.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+		let newVal = this.modifyStyleValue(selVal, op, modification, prefix, suffix);
 			
 		// do not apply styles to empty lines
 		if (modification === "apply" && selVal.trim().length === 0) newVal = selVal;
@@ -569,13 +573,7 @@ export class TextTransformer {
 			const cursor = sel2.to; // save cursor
 			const selVal = this.editor.getRange(smartSel.from, smartSel.to)
 
-			const newVal = modification === 'apply'
-				? prefix + selVal + suffix
-				: op === "italics"
-					? this.removeItalicsMarkers(selVal)
-					: selVal
-						.replace(new RegExp("^" + escapeRegExp(prefix)), "")
-						.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+			const newVal = this.modifyStyleValue(selVal, op, modification, prefix, suffix);
 			this.editor.replaceRange(newVal, smartSel.from, smartSel.to);
 
 			this.editor.setCursor(this.offsetCursor(cursor, offsets.pre)); // restore cursor (offset by prefix)
