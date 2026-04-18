@@ -412,6 +412,24 @@ describe('stackable formatting', () => {
 			assert.strictEqual(editor.getEditorContent(), tc.firstOnly);
 		}
 	});
+
+	it('should remove inner bold from stacked italics+bold with bare cursor and keep cursor logical', () => {
+		const editor = setupTest("_**word**_");
+		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "_word_");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 3 }, head: { line: 0, ch: 3 } });
+	});
+
+	it('should remove inner bold from stacked italics+bold selection and keep selection on content', () => {
+		const editor = setupTest("_**word**_");
+		editor.setSelection({ line: 0, ch: 3 }, { line: 0, ch: 7 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "_word_");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 1 }, head: { line: 0, ch: 5 } });
+	});
 });
 
 describe('non-stackable formatting', () => {

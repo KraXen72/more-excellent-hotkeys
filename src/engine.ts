@@ -217,6 +217,10 @@ export class TextTransformer {
 	getStyleRemovalTarget(checkSel: Range, smartSel: Range, op: StyleOperations) {
 		if (this.insideStyle(checkSel, op)) return checkSel;
 		if (this.insideStyle(smartSel, op) || this.multilineInsideStyle(smartSel, op)) return smartSel;
+		const nestedCheck = this.getNestedStyleRemovalTarget(checkSel, op);
+		if (nestedCheck) return nestedCheck;
+		const nestedSmart = this.getNestedStyleRemovalTarget(smartSel, op);
+		if (nestedSmart) return nestedSmart;
 		return false;
 	}
 
@@ -269,17 +273,7 @@ export class TextTransformer {
 	}
 
 	isStyleWrapped(value: string, op: StyleOperations) {
-		if (op === "italics") return this.isItalicsWrapped(value);
-		const style = this.getStyleConfig(op);
-		return value.startsWith(style.start) && value.endsWith(style.end);
-	}
-
-	isItalicsWrapped(value: string) {
-		const startMarkers = value.match(/^[_*]+/)?.[0] ?? "";
-		const endMarkers = value.match(/[_*]+$/)?.[0] ?? "";
-		if (!startMarkers || !endMarkers) return false;
-		if (startMarkers.includes("_") || endMarkers.includes("_")) return true;
-		return startMarkers.length % 2 === 1 && endMarkers.length % 2 === 1;
+		return !!this.getStyleWrapperLengths(value, op);
 	}
 
 	removeItalicsMarkers(value: string) {
@@ -294,6 +288,54 @@ export class TextTransformer {
 			next = next.replace(/^\*/, "").replace(/\*$/, "");
 		}
 		return next;
+	}
+
+	getStyleWrapperLengths(value: string, op: StyleOperations) {
+		if (op === "italics") {
+			const underscoreStart = value.match(/^_+/)?.[0] ?? "";
+			const underscoreEnd = value.match(/_+$/)?.[0] ?? "";
+			if (underscoreStart && underscoreEnd) {
+				return { start: underscoreStart.length, end: underscoreEnd.length };
+			}
+
+			const starStart = value.match(/^\*+/)?.[0] ?? "";
+			const starEnd = value.match(/\*+$/)?.[0] ?? "";
+			if (starStart.length % 2 === 1 && starEnd.length % 2 === 1) {
+				return { start: 1, end: 1 };
+			}
+			return false;
+		}
+
+		const style = this.getStyleConfig(op);
+		if (!value.startsWith(style.start) || !value.endsWith(style.end)) return false;
+		return { start: style.start.length, end: style.end.length };
+	}
+
+	getNestedStyleRemovalTarget(sel: Range, op: StyleOperations) {
+		if (sel.from.line !== sel.to.line) return false;
+
+		let current = { from: { ...sel.from }, to: { ...sel.to } } satisfies Range;
+		for (let depth = 0; depth < styleOperations.length; depth++) {
+			const value = this.editor.getRange(current.from, current.to);
+			if (this.isStyleWrapped(value, op)) return current;
+
+			let peeled = false;
+			for (const outer of styleOperations) {
+				if (outer === op || !this.isStackable(op, outer)) continue;
+				const wrapper = this.getStyleWrapperLengths(value, outer);
+				if (!wrapper) continue;
+
+				current = {
+					from: this.offsetCursor(current.from, wrapper.start),
+					to: this.offsetCursor(current.to, -wrapper.end),
+				} satisfies Range;
+				peeled = true;
+				break;
+			}
+
+			if (!peeled) return false;
+		}
+		return false;
 	}
 
 	/** get the Range of the smart selection created by expanding the current one / from cursor*/
