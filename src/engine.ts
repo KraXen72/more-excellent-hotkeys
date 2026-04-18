@@ -51,8 +51,11 @@ const styleConfig: Record<ValidOperations, StyleConfig> = {
 
 
 // for now, you have to manually update these
-const reg_marker_bare = "\\*|(?:==)|`|(?:%%)|(?:~~)|<u>|<\\/u>" // markers
-const reg_char = `(\\([a-zA-Z0-9]+\\)|[a-zA-Z0-9]+|${reg_marker_bare})`; // characters considered word
+const reg_marker_bare = "\\*|(?:==)|`|(?:%%)|(?:~~)|<u>|<\\/u>"; // markers
+const reg_word = "\\w+";
+const reg_open_paren = "\\((?=\\w)";
+const reg_close_paren = "(?<=\\w)\\)";
+const reg_char = `(${reg_word}|${reg_open_paren}|${reg_close_paren}|${reg_marker_bare})`; // characters considered word
 
 const reg_before = new RegExp(`${reg_char}*$`);
 const reg_after = new RegExp(`^${reg_char}*`);
@@ -125,8 +128,8 @@ export class TextTransformer {
 			const sel = selections[i];
 			this.trimmedBeforeLength = 0;
 			this.trimmedAfterLength = 0;
-			this.startMarkerRegex = new RegExp(`^${escapeRegExp(styleConfig[op].start)}*`);
-			this.endMarkerRegex = new RegExp(`${escapeRegExp(styleConfig[op].end)}*$`);
+			this.startMarkerRegex = new RegExp(`^(?:${escapeRegExp(styleConfig[op].start)})+`);
+			this.endMarkerRegex = new RegExp(`(?:${escapeRegExp(styleConfig[op].end)})+$`);
 
 			// remember original line lengths, so we can adjust the following selections
 			const originalFromLineLength = this.editor.getLine(sel.from.line).length;
@@ -144,12 +147,13 @@ export class TextTransformer {
 	
 			// try removing styles first
 			let stylesRemoved = false;
-			if (this.insideStyle(checkSel, op) !== false) {
-				this.removeStyle(sel, checkSel, op, isSelection);
-				stylesRemoved = true;
-			} 
-			if (this.insideStyle(smartSel, op) !== false) {
-				this.removeStyle(sel, smartSel, op, isSelection);
+			const removeTarget = this.insideStyle(checkSel, op)
+				? checkSel
+				: this.insideStyle(smartSel, op) || this.multilineInsideStyle(smartSel, op)
+					? smartSel
+					: false;
+			if (removeTarget) {
+				this.removeStyle(sel, removeTarget, op, isSelection);
 				stylesRemoved = true;
 			}
 	
@@ -182,11 +186,29 @@ export class TextTransformer {
 			const diff = newLineLength - originalToLineLength;
 			adjustSel.to.ch += diff;
 		}
+		return adjustSel;
 	}
 
 	insideStyle(sel: Range, op: ValidOperations) {
 		const value = this.editor.getRange(sel.from, sel.to);
+		if (op === "italics") {
+			return /^[_*]+/.test(value) && /[_*]+$/.test(value);
+		}
 		return value.startsWith(styleConfig[op].start) && value.endsWith(styleConfig[op].end);
+	}
+
+	multilineInsideStyle(sel: Range, op: ValidOperations) {
+		const value = this.editor.getRange(sel.from, sel.to);
+		const lines = value.split("\n");
+		const nonEmptyLines = lines.filter((line) => line.trim().length > 0);
+		if (nonEmptyLines.length === 0) return false;
+
+		return nonEmptyLines.every((line) => {
+			const trimmed = this.trimString(line).trim();
+			if (trimmed.length === 0) return true;
+			if (op === "italics") return /^[_*]+/.test(trimmed) && /[_*]+$/.test(trimmed);
+			return trimmed.startsWith(styleConfig[op].start) && trimmed.endsWith(styleConfig[op].end);
+		});
 	}
 
 	/** get the Range of the smart selection created by expanding the current one / from cursor*/
@@ -357,11 +379,15 @@ export class TextTransformer {
 	}
 
 	/** calculate the offset when restoring the cursor / selection */
-	calculateOffsets(sel: Range, modification: 'apply' | 'remove', prefix: string, suffix: string) {
+	calculateOffsets(sel: Range, modification: 'apply' | 'remove', op: ValidOperations, prefix: string, suffix: string) {
 		const selection = this.editor.getRange(sel.from, sel.to)
 
-		const includesMarkersStart = this.startMarkerRegex.test(selection)
-		const includesMarkersEnd = this.endMarkerRegex.test(selection);
+		const includesMarkersStart = op === "italics"
+			? /^[_*]+/.test(selection)
+			: this.startMarkerRegex.test(selection);
+		const includesMarkersEnd = op === "italics"
+			? /[_*]+$/.test(selection)
+			: this.endMarkerRegex.test(selection);
 		const modifMultiplier = modification === 'remove' ? -1 : 1;
 		const pm = prefix.length * modifMultiplier;
 		const sm = suffix.length * modifMultiplier;
@@ -385,15 +411,17 @@ export class TextTransformer {
 	}
 
 	/** either add apply or remove a style for a given string */
-	#modifyLine(selVal: string, prefix: string, suffix: string, modification: 'apply' | 'remove', trim = false) {
+	#modifyLine(selVal: string, prefix: string, suffix: string, modification: 'apply' | 'remove', op: ValidOperations, trim = false) {
 		const { trimmedBefore, result, trimmedAfter } = this.#trimStringWithParts(selVal);
 		if (trim) selVal = result;
 
 		let newVal = modification === 'apply'
 			? prefix + selVal + suffix
-			: selVal 
-				.replace(new RegExp("^" + escapeRegExp(prefix)), "")
-				.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+			: op === "italics"
+				? selVal.replace(/^[_*]+/, "").replace(/[_*]+$/, "")
+				: selVal
+					.replace(new RegExp("^" + escapeRegExp(prefix)), "")
+					.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
 			
 		// do not apply styles to empty lines
 		if (modification === "apply" && selVal.trim().length === 0) newVal = selVal;
@@ -419,7 +447,7 @@ export class TextTransformer {
 
 		// used when restoring previous cursor / selection position
 		// account for any whitespace we trimmed in cursor position
-		const offsets = this.calculateOffsets(sel2, modification, prefix, suffix);
+		const offsets = this.calculateOffsets(sel2, modification, op, prefix, suffix);
 
 		if (debug_dryRun) {
 			this.editor.setSelection(smartSel.from, smartSel.to);
@@ -433,8 +461,8 @@ export class TextTransformer {
 
 			// apply for each line separately if the selection is multiline
 			const newVal = multiline
-				? selVal.split("\n").map(line => this.#modifyLine(line, prefix, suffix, modification, true)).join("\n")
-				: this.#modifyLine(selVal, prefix, suffix, modification);
+				? selVal.split("\n").map(line => this.#modifyLine(line, prefix, suffix, modification, op, true)).join("\n")
+				: this.#modifyLine(selVal, prefix, suffix, modification, op);
 
 			this.editor.replaceSelection(newVal); // replace the actual string in the editor
 
@@ -451,7 +479,11 @@ export class TextTransformer {
 
 			const newVal = modification === 'apply'
 				? prefix + selVal + suffix
-				: selVal.replace(prefix, "").replace(suffix, "");
+				: op === "italics"
+					? selVal.replace(/^[_*]+/, "").replace(/[_*]+$/, "")
+					: selVal
+						.replace(new RegExp("^" + escapeRegExp(prefix)), "")
+						.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
 			this.editor.replaceRange(newVal, smartSel.from, smartSel.to);
 
 			this.editor.setCursor(this.offsetCursor(cursor, offsets.pre)); // restore cursor (offset by prefix)

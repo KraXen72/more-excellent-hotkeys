@@ -23,7 +23,6 @@ class MockEditor {
 		this.selections = [{ anchor: from, head: to }];
 	}
 	getLine(lineNo: number) {
-		console.log("getting line: ", lineNo, this.editorContent)
 		return this.editorContent[lineNo].toString();
 	}
 	getSelection() {
@@ -40,7 +39,7 @@ class MockEditor {
 		const middle = this.editorContent.slice(from.line + 1, to.line)
 		const end = this.editorContent[to.line].slice(0, to.ch);
 
-		return [start, middle.length > 0 ? middle : false, end].filter(Boolean).join('\n');
+		return [start, ...middle, end].join('\n');
 	}
 	replaceSelection(newText: string) {
 		if (!this.selections.length) return;
@@ -60,14 +59,20 @@ class MockEditor {
 			// Handle multi-line selection
 			const startLine = this.editorContent[anchor.line].slice(0, anchor.ch); // Text before selection in the start line
 			const endLine = this.editorContent[head.line].slice(head.ch); // Text after selection in the end line
+			const replacementLines = newText.split('\n');
+			replacementLines[0] = startLine + replacementLines[0];
+			replacementLines[replacementLines.length - 1] += endLine;
 
 			// Replace content between the selected lines
-			this.editorContent.splice(anchor.line, head.line - anchor.line + 1, startLine + newText + endLine);
+			this.editorContent.splice(anchor.line, head.line - anchor.line + 1, ...replacementLines);
 
 			// Update the selection based on the newText length and position
-			const newAnchorCh = anchor.ch + newText.length;
-			const newHeadCh = newAnchorCh; // Since we're replacing the entire selection, new `anchor` and `head` should be equal
-			this.selections[0] = { anchor: { ...anchor, ch: newAnchorCh }, head: { ...head, ch: newHeadCh } };
+			const newLine = anchor.line + replacementLines.length - 1;
+			const newCh = replacementLines[replacementLines.length - 1].length - endLine.length;
+			this.selections[0] = {
+				anchor: { line: newLine, ch: newCh },
+				head: { line: newLine, ch: newCh },
+			};
 		}
 	}
 	// FIXME
@@ -198,6 +203,26 @@ describe('bare cursor operations', () => {
 		assert.strictEqual(editor.getEditorContent(), "word **** ");
 		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 7 } });
 	});
+
+	it('italics: should place cursor between stars for empty style', () => {
+		const editor = setupTest("word  ");
+		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "word ** ");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
+	});
+
+	it('italics: should include parenthesized words but not lone parens', () => {
+		const withWord = setupTest("(word)");
+		withWord.setSelection({ line: 0, ch: 3 }, { line: 0, ch: 3 });
+		transformer.transformText('italics');
+		assert.strictEqual(withWord.getEditorContent(), "*(word)*");
+
+		const loneParens = setupTest("()");
+		loneParens.setSelection({ line: 0, ch: 1 }, { line: 0, ch: 1 });
+		transformer.transformText('italics');
+		assert.strictEqual(loneParens.getEditorContent(), "(**)");
+	});
 });
 
 describe('selection operations', () => {
@@ -225,6 +250,23 @@ describe('selection operations', () => {
 		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 16 } })
 	});
 
+	it('italics: un-italic should remove stars and underscores', () => {
+		const stars = setupTest("*hello*");
+		stars.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 7 });
+		transformer.transformText('italics');
+		assert.strictEqual(stars.getEditorContent(), "hello");
+
+		const underscores = setupTest("_hello_");
+		underscores.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 7 });
+		transformer.transformText('italics');
+		assert.strictEqual(underscores.getEditorContent(), "hello");
+
+		const mixed = setupTest("_*hello*_");
+		mixed.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 9 });
+		transformer.transformText('italics');
+		assert.strictEqual(mixed.getEditorContent(), "hello");
+	});
+
 	// it('should keep pure whitespace selection unchanged', () => {
 	// 	const editor = setupTest("word    word");
 	// 	editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 7 });
@@ -235,6 +277,13 @@ describe('selection operations', () => {
 });
 
 describe('Multi-line Operations', () => {
+	it('highlight: should un-highlight headings when selection starts/ends on blank lines', () => {
+		const editor = setupTest("before\n\n# ==Heading A==\n## ==Heading B==\n\nafter");
+		editor.setSelection({ line: 1, ch: 0 }, { line: 4, ch: 0 });
+		transformer.transformText('highlight');
+		assert.strictEqual(editor.getEditorContent(), "before\n\n# Heading A\n## Heading B\n\nafter");
+	});
+
 	// it('should handle multi-line (sloppy) selection', () => {
 	// 	const editor = setupTest("firstTestML1 line\nsecond line\nthird line");
 	// 	editor.setSelection(
