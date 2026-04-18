@@ -1,4 +1,4 @@
-import type { ValidOperations } from "./main";
+import type { ValidOperations, StyleOperations } from "./main";
 import { Editor, EditorPosition } from "obsidian";
 
 
@@ -38,10 +38,10 @@ const trimAfter = [
 	"]"
 ];
 
-const styleConfig: Record<ValidOperations, StyleConfig> = {
+const styleConfig: Record<StyleOperations, StyleConfig> = {
 	bold: { start: '**', end: '**' },
 	highlight: { start: '==', end: '==' },
-	italics: { start: '*', end: '*' },
+	italics: { start: '_', end: '_' },
 	inlineCode: { start: '`', end: '`' },
 	comment: { start: '%%', end: '%%' },
 	strikethrough: { start: '~~', end: '~~' },
@@ -51,7 +51,7 @@ const styleConfig: Record<ValidOperations, StyleConfig> = {
 
 
 // for now, you have to manually update these
-const reg_marker_bare = "\\*|(?:==)|`|(?:%%)|(?:~~)|<u>|<\\/u>"; // markers
+const reg_marker_bare = "\\*|_|(?:==)|`|(?:%%)|(?:~~)|<u>|<\\/u>"; // markers
 const reg_word = "\\w+";
 const reg_open_paren = "\\((?=\\w)";
 const reg_close_paren = "(?<=\\w)\\)";
@@ -128,12 +128,26 @@ export class TextTransformer {
 			const sel = selections[i];
 			this.trimmedBeforeLength = 0;
 			this.trimmedAfterLength = 0;
-			this.startMarkerRegex = new RegExp(`^(?:${escapeRegExp(styleConfig[op].start)})+`);
-			this.endMarkerRegex = new RegExp(`(?:${escapeRegExp(styleConfig[op].end)})+$`);
 
 			// remember original line lengths, so we can adjust the following selections
 			const originalFromLineLength = this.editor.getLine(sel.from.line).length;
 			const originalToLineLength = this.editor.getLine(sel.to.line).length;
+
+			if (op === "removeFormatting") {
+				const smartSel = this.getSmartSelection(sel);
+				const selection = this.editor.getRange(sel.from, sel.to);
+				const isSelection = !!selection && selection.length > 0;
+				this.removeFormatting(smartSel, isSelection);
+
+				for (let j = i + 1; j < selections.length; j++) {
+					const sel2 = selections[j];
+					this.updateSelectionOffsets(sel, sel2, originalFromLineLength, originalToLineLength);
+				}
+				continue;
+			}
+
+			this.startMarkerRegex = new RegExp(`^(?:${escapeRegExp(styleConfig[op].start)})+`);
+			this.endMarkerRegex = new RegExp(`(?:${escapeRegExp(styleConfig[op].end)})+$`);
 
 			const checkSel = this.getSmartSelection(sel, false);
 			const smartSel = this.getSmartSelection(sel);
@@ -189,7 +203,7 @@ export class TextTransformer {
 		return adjustSel;
 	}
 
-	insideStyle(sel: Range, op: ValidOperations) {
+	insideStyle(sel: Range, op: StyleOperations) {
 		const value = this.editor.getRange(sel.from, sel.to);
 		if (op === "italics") {
 			return /^[_*]+/.test(value) && /[_*]+$/.test(value);
@@ -197,7 +211,7 @@ export class TextTransformer {
 		return value.startsWith(styleConfig[op].start) && value.endsWith(styleConfig[op].end);
 	}
 
-	multilineInsideStyle(sel: Range, op: ValidOperations) {
+	multilineInsideStyle(sel: Range, op: StyleOperations) {
 		const value = this.editor.getRange(sel.from, sel.to);
 		const lines = value.split("\n");
 		const nonEmptyLines = lines.filter((line) => line.trim().length > 0);
@@ -379,7 +393,7 @@ export class TextTransformer {
 	}
 
 	/** calculate the offset when restoring the cursor / selection */
-	calculateOffsets(sel: Range, modification: 'apply' | 'remove', op: ValidOperations, prefix: string, suffix: string) {
+	calculateOffsets(sel: Range, modification: 'apply' | 'remove', op: StyleOperations, prefix: string, suffix: string) {
 		const selection = this.editor.getRange(sel.from, sel.to)
 
 		const includesMarkersStart = op === "italics"
@@ -411,7 +425,7 @@ export class TextTransformer {
 	}
 
 	/** either add apply or remove a style for a given string */
-	#modifyLine(selVal: string, prefix: string, suffix: string, modification: 'apply' | 'remove', op: ValidOperations, trim = false) {
+	#modifyLine(selVal: string, prefix: string, suffix: string, modification: 'apply' | 'remove', op: StyleOperations, trim = false) {
 		const { trimmedBefore, result, trimmedAfter } = this.#trimStringWithParts(selVal);
 		if (trim) selVal = result;
 
@@ -434,7 +448,7 @@ export class TextTransformer {
 	#modifySelection(
 		original: Range,
 		smartSel: Range, 
-		op: ValidOperations, 
+		op: StyleOperations, 
 		modification: 'apply' | 'remove', 
 		isSelection: boolean,
 		debug_dryRun = false,
@@ -490,11 +504,54 @@ export class TextTransformer {
 		}
 	}
 
-	applyStyle(sel: Range, smartSel: Range, op: ValidOperations, isSelection: boolean) {
+	#stripSupportedMarkers(value: string) {
+		let next = value;
+		let previous = "";
+		while (next !== previous) {
+			previous = next;
+			next = next
+				.replace(/^(?:\*\*|==|`|%%|~~|<u>|<\/u>|[_*])+/, "")
+				.replace(/(?:\*\*|==|`|%%|~~|<u>|<\/u>|[_*])+$/, "");
+		}
+		return next;
+	}
+
+	#removeFormattingWord(word: string) {
+		const before = (word.match(/^[^\w<*_`~%=]+/) || [""])[0];
+		const after = (word.match(/[^\w>/*_`~%=]+$/) || [""])[0];
+		const coreStart = before.length;
+		const coreEnd = word.length - after.length;
+		const core = coreEnd >= coreStart ? word.slice(coreStart, coreEnd) : "";
+		return before + this.#stripSupportedMarkers(core) + after;
+	}
+
+	removeFormatting(sel: Range, isSelection: boolean) {
+		this.editor.setSelection(sel.from, sel.to);
+		const current = this.editor.getSelection();
+		const lines = current.split("\n");
+		const cleanedLines = lines.map((line) => line
+			.split(/(\s+)/)
+			.map((part) => /\s+/.test(part) ? part : this.#removeFormattingWord(part))
+			.join(""));
+		const cleaned = cleanedLines.join("\n");
+
+		this.editor.replaceSelection(cleaned);
+
+		const end = cleanedLines.length === 1
+			? { line: sel.from.line, ch: sel.from.ch + cleanedLines[0].length }
+			: { line: sel.from.line + cleanedLines.length - 1, ch: cleanedLines[cleanedLines.length - 1].length };
+		if (isSelection) {
+			this.editor.setSelection(sel.from, end);
+		} else {
+			this.editor.setCursor(end);
+		}
+	}
+
+	applyStyle(sel: Range, smartSel: Range, op: StyleOperations, isSelection: boolean) {
 		this.#modifySelection(sel, smartSel, op, 'apply', isSelection);
 	}
 
-	removeStyle(sel: Range, smartSel: Range, wrappedWith: ValidOperations, isSelection: boolean) {
+	removeStyle(sel: Range, smartSel: Range, wrappedWith: StyleOperations, isSelection: boolean) {
 		this.#modifySelection(sel, smartSel, wrappedWith, 'remove', isSelection);
 	}
 }

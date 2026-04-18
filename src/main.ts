@@ -19,10 +19,23 @@ const TextTransformOperations = [
   "comment",
   "strikethrough",
 	"underscore",
+	"removeFormatting",
 	// "inlineMath"
 ] as const;
 
 export type ValidOperations = typeof TextTransformOperations[number];
+export type StyleOperations = Exclude<ValidOperations, "removeFormatting">;
+
+const commandNames: Record<ValidOperations, string> = {
+	bold: 'Toggle bold',
+	highlight: 'Toggle highlight',
+	italics: 'Toggle italics',
+	inlineCode: 'Toggle inline code',
+	comment: 'Toggle comment',
+	strikethrough: 'Toggle strikethrough',
+	underscore: 'Toggle underscore',
+	removeFormatting: 'Remove formatting',
+};
 
 export default class SmarterHotkeys extends Plugin {
 	settings: SmarterHotkeysSettings;
@@ -37,7 +50,7 @@ export default class SmarterHotkeys extends Plugin {
 			const op = _op as ValidOperations;
 			this.addCommand({
 				id: 'meh-' + op,
-				name: `Toggle ${op}`,
+				name: commandNames[op],
 				editorCallback: (editor: Editor) => {
 					this.engine.setEditor(editor);
 					this.engine.transformText(op);

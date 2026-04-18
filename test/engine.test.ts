@@ -204,11 +204,11 @@ describe('bare cursor operations', () => {
 		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 7 } });
 	});
 
-	it('italics: should place cursor between stars for empty style', () => {
+	it('italics: should place cursor between underscores for empty style', () => {
 		const editor = setupTest("word  ");
 		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
 		transformer.transformText('italics');
-		assert.strictEqual(editor.getEditorContent(), "word ** ");
+		assert.strictEqual(editor.getEditorContent(), "word __ ");
 		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
 	});
 
@@ -216,12 +216,12 @@ describe('bare cursor operations', () => {
 		const withWord = setupTest("(word)");
 		withWord.setSelection({ line: 0, ch: 3 }, { line: 0, ch: 3 });
 		transformer.transformText('italics');
-		assert.strictEqual(withWord.getEditorContent(), "*(word)*");
+		assert.strictEqual(withWord.getEditorContent(), "_(word)_");
 
 		const loneParens = setupTest("()");
 		loneParens.setSelection({ line: 0, ch: 1 }, { line: 0, ch: 1 });
 		transformer.transformText('italics');
-		assert.strictEqual(loneParens.getEditorContent(), "(**)");
+		assert.strictEqual(loneParens.getEditorContent(), "(__)");
 	});
 });
 
@@ -282,6 +282,20 @@ describe('Multi-line Operations', () => {
 		editor.setSelection({ line: 1, ch: 0 }, { line: 4, ch: 0 });
 		transformer.transformText('highlight');
 		assert.strictEqual(editor.getEditorContent(), "before\n\n# Heading A\n## Heading B\n\nafter");
+	});
+
+	it('remove formatting: should remove supported markers by line and word', () => {
+		const editor = setupTest("# ==Heading==\nSome _it_ and **bold** and <u>u</u>");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 1, ch: 35 });
+		transformer.transformText('removeFormatting');
+		assert.strictEqual(editor.getEditorContent(), "# Heading\nSome it and bold and u");
+	});
+
+	it('remove formatting: should work from bare cursor on formatted word', () => {
+		const editor = setupTest("foo **bar** baz");
+		editor.setSelection({ line: 0, ch: 7 }, { line: 0, ch: 7 });
+		transformer.transformText('removeFormatting');
+		assert.strictEqual(editor.getEditorContent(), "foo bar baz");
 	});
 
 	// it('should handle multi-line (sloppy) selection', () => {
