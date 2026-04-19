@@ -7,6 +7,13 @@ small obsidian plugin for quick markdown formatting toggles.
   - similarly, `hello **thi[s is some sen]tence**` -> `Toggle bold` -> `hello this is some sentence`.
 - cursor position is preserved where reasonable.
 
+## local installation  
+you can probably use BRAT (i haven't tested it).  
+---
+download `meh-more-excellent-hotkeys.zip` from the latest release.  
+unzip it, such that its contents are in `<your vaullt>/.obsidian/plugins/meh-more-excellent-hotkeys`,  
+e.g. `<your vaullt>/.obsidian/plugins/meh-more-excellent-hotkeys/main.js`  
+
 ## commands added
 this plugin adds editor commands you can bind to your own hotkeys (no default bindings).  
 - Toggle bold
