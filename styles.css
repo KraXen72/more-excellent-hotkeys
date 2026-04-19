@@ -1,8 +1,24 @@
-/*
+.meh-checkbox-suggest-item .meh-checkbox-suggest-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.meh-checkbox-suggest-item .meh-checkbox-suggest-row .task-list-item-checkbox {
+	margin: 0;
+	flex: 0 0 auto;
+	pointer-events: none;
+	opacity: 1;
+}
 
-If your plugin does not need CSS, delete this file.
+.meh-checkbox-suggest-item .meh-checkbox-suggest-marker {
+	font-family: var(--font-monospace);
+	color: var(--text-faint);
+	min-width: 2.6em;
+}
 
-*/
+.meh-checkbox-suggest-item .meh-checkbox-suggest-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

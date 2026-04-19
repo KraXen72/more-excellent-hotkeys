@@ -23,7 +23,6 @@ class MockEditor {
 		this.selections = [{ anchor: from, head: to }];
 	}
 	getLine(lineNo: number) {
-		console.log("getting line: ", lineNo, this.editorContent)
 		return this.editorContent[lineNo].toString();
 	}
 	getSelection() {
@@ -40,7 +39,7 @@ class MockEditor {
 		const middle = this.editorContent.slice(from.line + 1, to.line)
 		const end = this.editorContent[to.line].slice(0, to.ch);
 
-		return [start, middle.length > 0 ? middle : false, end].filter(Boolean).join('\n');
+		return [start, ...middle, end].join('\n');
 	}
 	replaceSelection(newText: string) {
 		if (!this.selections.length) return;
@@ -60,14 +59,20 @@ class MockEditor {
 			// Handle multi-line selection
 			const startLine = this.editorContent[anchor.line].slice(0, anchor.ch); // Text before selection in the start line
 			const endLine = this.editorContent[head.line].slice(head.ch); // Text after selection in the end line
+			const replacementLines = newText.split('\n');
+			replacementLines[0] = startLine + replacementLines[0];
+			replacementLines[replacementLines.length - 1] += endLine;
 
 			// Replace content between the selected lines
-			this.editorContent.splice(anchor.line, head.line - anchor.line + 1, startLine + newText + endLine);
+			this.editorContent.splice(anchor.line, head.line - anchor.line + 1, ...replacementLines);
 
 			// Update the selection based on the newText length and position
-			const newAnchorCh = anchor.ch + newText.length;
-			const newHeadCh = newAnchorCh; // Since we're replacing the entire selection, new `anchor` and `head` should be equal
-			this.selections[0] = { anchor: { ...anchor, ch: newAnchorCh }, head: { ...head, ch: newHeadCh } };
+			const newLine = anchor.line + replacementLines.length - 1;
+			const newCh = replacementLines[replacementLines.length - 1].length - endLine.length;
+			this.selections[0] = {
+				anchor: { line: newLine, ch: newCh },
+				head: { line: newLine, ch: newCh },
+			};
 		}
 	}
 	// FIXME
@@ -128,6 +133,7 @@ const transformer = new TextTransformer();
 // Helper function to setup test with shared transformer
 function setupTest(content: string) {
 	const mockEditor = new MockEditor(content);
+	transformer.setSettings({ useAsteriskForItalics: false });
 	transformer.setEditor(mockEditor as unknown as Editor);
 	return mockEditor;
 }
@@ -198,6 +204,35 @@ describe('bare cursor operations', () => {
 		assert.strictEqual(editor.getEditorContent(), "word **** ");
 		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 7 } });
 	});
+
+	it('italics: should place cursor between underscores for empty style', () => {
+		const editor = setupTest("word  ");
+		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "word __ ");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
+	});
+
+	it('italics: should include parenthesized words but not lone parens', () => {
+		const withWord = setupTest("(word)");
+		withWord.setSelection({ line: 0, ch: 3 }, { line: 0, ch: 3 });
+		transformer.transformText('italics');
+		assert.strictEqual(withWord.getEditorContent(), "_(word)_");
+
+		const loneParens = setupTest("()");
+		loneParens.setSelection({ line: 0, ch: 1 }, { line: 0, ch: 1 });
+		transformer.transformText('italics');
+		assert.strictEqual(loneParens.getEditorContent(), "(__)");
+	});
+
+	it('italics: should use asterisks when setting is enabled', () => {
+		const editor = setupTest("word  ");
+		transformer.setSettings({ useAsteriskForItalics: true });
+		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "word ** ");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
+	});
 });
 
 describe('selection operations', () => {
@@ -225,6 +260,35 @@ describe('selection operations', () => {
 		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 16 } })
 	});
 
+	it('italics: un-italic should remove stars and underscores', () => {
+		const stars = setupTest("*hello*");
+		stars.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 7 });
+		transformer.transformText('italics');
+		assert.strictEqual(stars.getEditorContent(), "hello");
+
+		const underscores = setupTest("_hello_");
+		underscores.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 7 });
+		transformer.transformText('italics');
+		assert.strictEqual(underscores.getEditorContent(), "hello");
+
+		const mixed = setupTest("_*hello*_");
+		mixed.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 9 });
+		transformer.transformText('italics');
+		assert.strictEqual(mixed.getEditorContent(), "hello");
+	});
+
+	it('italics: should apply and remove with asterisks when enabled', () => {
+		const editor = setupTest("word");
+		transformer.setSettings({ useAsteriskForItalics: true });
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "*word*");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "word");
+	});
+
 	// it('should keep pure whitespace selection unchanged', () => {
 	// 	const editor = setupTest("word    word");
 	// 	editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 7 });
@@ -234,81 +298,289 @@ describe('selection operations', () => {
 	// });
 });
 
-describe('Multi-line Operations', () => {
-	// it('should handle multi-line (sloppy) selection', () => {
-	// 	const editor = setupTest("firstTestML1 line\nsecond line\nthird line");
-	// 	editor.setSelection(
-	// 		{ line: 0, ch: 7 },
-	// 		{ line: 2, ch: 4 }
-	// 	);
-	// 	transformer.transformText('bold');
-	// 	assert.strictEqual(
-	// 		editor.getEditorContent(),
-	// 		"firstTestML1 **line\nsecond line\nthird** line"
-	// 	);
-	// });
+describe('style roundtrip regression', () => {
+	it('should roundtrip every style on bare cursor', () => {
+		const cases: Array<{
+			op: 'bold' | 'highlight' | 'italics' | 'inlineCode' | 'comment' | 'strikethrough' | 'underscore';
+			expectedApplied: string;
+		}> = [
+			{ op: 'bold', expectedApplied: '**word**' },
+			{ op: 'highlight', expectedApplied: '==word==' },
+			{ op: 'italics', expectedApplied: '_word_' },
+			{ op: 'inlineCode', expectedApplied: '`word`' },
+			{ op: 'comment', expectedApplied: '%%word%%' },
+			{ op: 'strikethrough', expectedApplied: '~~word~~' },
+			{ op: 'underscore', expectedApplied: '<u>word</u>' },
+		];
 
-	// it('should handle multi-line (precise) selection', () => {
-	// 	const editor = setupTest("firstTestML2 line\nsecond line\nthird line");
-	// 	editor.setSelection(
-	// 		{ line: 0, ch: 6 },
-	// 		{ line: 2, ch: 5 }
-	// 	);
-	// 	transformer.transformText('bold');
-	// 	assert.strictEqual(
-	// 		editor.getEditorContent(),
-	// 		"firstTestML2 **line\nsecond line\nthird** line"
-	// 	);
-	// });
+		for (const tc of cases) {
+			const editor = setupTest("word");
+			editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
 
-	// it('everything selected: should handle bullet points and checkboxes', () => {
-	// 	const editor = setupTest("- [ ] first item\n- [x] second item");
-	// 	editor.setSelection(
-	// 		{ line: 0, ch: 0 },
-	// 		{ line: 1, ch: 17 }
-	// 	);
-	// 	transformer.transformText('bold');
-	// 	assert.strictEqual(
-	// 		editor.getEditorContent(),
-	// 		"- [ ] **first item**\n- [x] **second item**"
-	// 	);
-	// });
+			transformer.transformText(tc.op);
+			assert.strictEqual(editor.getEditorContent(), tc.expectedApplied);
+
+			transformer.transformText(tc.op);
+			assert.strictEqual(editor.getEditorContent(), "word");
+		}
+	});
+
+	it('should roundtrip every style on explicit selection', () => {
+		const cases: Array<{
+			op: 'bold' | 'highlight' | 'italics' | 'inlineCode' | 'comment' | 'strikethrough' | 'underscore';
+			expectedApplied: string;
+		}> = [
+			{ op: 'bold', expectedApplied: '**word**' },
+			{ op: 'highlight', expectedApplied: '==word==' },
+			{ op: 'italics', expectedApplied: '_word_' },
+			{ op: 'inlineCode', expectedApplied: '`word`' },
+			{ op: 'comment', expectedApplied: '%%word%%' },
+			{ op: 'strikethrough', expectedApplied: '~~word~~' },
+			{ op: 'underscore', expectedApplied: '<u>word</u>' },
+		];
+
+		for (const tc of cases) {
+			const editor = setupTest("word");
+			editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 4 });
+
+			transformer.transformText(tc.op);
+			assert.strictEqual(editor.getEditorContent(), tc.expectedApplied);
+
+			transformer.transformText(tc.op);
+			assert.strictEqual(editor.getEditorContent(), "word");
+		}
+	});
+
+	it('italics in asterisk mode: should still stack and unstack with bold', () => {
+		const editor = setupTest("word");
+		transformer.setSettings({ useAsteriskForItalics: true });
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "***word***");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+	});
 });
 
-// describe('Style Removal', () => {
-// 	it('should remove style when selection matches exactly', () => {
-// 		const editor = setupTest("**hello** there");
-// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 8 });
-// 		transformer.transformText('bold');
-// 		assert.strictEqual(editor.getEditorContent(), "hello there");
-// 	});
+describe('stackable formatting', () => {
+	it('should stack italics on top of bold and unstack in toggle order', () => {
+		const editor = setupTest("word");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
 
-// 	it('should handle nested styles', () => {
-// 		const editor = setupTest("**hello ==world==**");
-// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 17 });
-// 		transformer.transformText('bold');
-// 		assert.strictEqual(editor.getEditorContent(), "hello ==world==");
-// 	});
-// });
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
 
-// describe('Edge Cases', () => {
-// 	it('should handle empty lines', () => {
-// 		const editor = setupTest("\n\ntext\n\n");
-// 		editor.setSelection(
-// 			{ line: 0, ch: 0 },
-// 			{ line: 4, ch: 0 }
-// 		);
-// 		transformer.transformText('bold');
-// 		assert.strictEqual(editor.getEditorContent(), "\n\n**text**\n\n");
-// 	});
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "_**word**_");
 
-// 	it('should handle special markdown syntax', () => {
-// 		const editor = setupTest("> [!note] Some text");
-// 		editor.setSelection(
-// 			{ line: 0, ch: 0 },
-// 			{ line: 0, ch: 17 }
-// 		);
-// 		transformer.transformText('bold');
-// 		assert.strictEqual(editor.getEditorContent(), "> [!note] **Some text**");
-// 	});
-// });
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "word");
+	});
+
+	it('should stack all configured compatible pairs and unstack back to the first style', () => {
+		const cases: Array<{
+			first: 'bold' | 'italics';
+			second: 'strikethrough' | 'highlight';
+			stacked: string;
+			firstOnly: string;
+		}> = [
+			{ first: 'bold', second: 'strikethrough', stacked: '~~**word**~~', firstOnly: '**word**' },
+			{ first: 'italics', second: 'strikethrough', stacked: '~~_word_~~', firstOnly: '_word_' },
+			{ first: 'bold', second: 'highlight', stacked: '==**word**==', firstOnly: '**word**' },
+			{ first: 'italics', second: 'highlight', stacked: '==_word_==', firstOnly: '_word_' },
+		];
+
+		for (const tc of cases) {
+			const editor = setupTest("word");
+			editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+			transformer.transformText(tc.first);
+			assert.strictEqual(editor.getEditorContent(), tc.firstOnly);
+
+			transformer.transformText(tc.second);
+			assert.strictEqual(editor.getEditorContent(), tc.stacked);
+
+			transformer.transformText(tc.second);
+			assert.strictEqual(editor.getEditorContent(), tc.firstOnly);
+		}
+	});
+
+	it('should remove inner bold from stacked italics+bold with bare cursor and keep cursor logical', () => {
+		const editor = setupTest("_**word**_");
+		editor.setSelection({ line: 0, ch: 5 }, { line: 0, ch: 5 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "_word_");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 3 }, head: { line: 0, ch: 3 } });
+	});
+
+	it('should remove inner bold from stacked italics+bold selection and keep selection on content', () => {
+		const editor = setupTest("_**word**_");
+		editor.setSelection({ line: 0, ch: 3 }, { line: 0, ch: 7 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "_word_");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 1 }, head: { line: 0, ch: 5 } });
+	});
+
+	it('should remove inner style from multiline stacked lines', () => {
+		const editor = setupTest("==**first**==\n==**second**==");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 1, ch: 14 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "==first==\n==second==");
+	});
+});
+
+describe('non-stackable formatting', () => {
+	it('should consume first toggle by removing existing non-stackable style', () => {
+		const editor = setupTest("word");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
+
+		transformer.transformText('comment');
+		assert.strictEqual(editor.getEditorContent(), "word");
+
+		transformer.transformText('comment');
+		assert.strictEqual(editor.getEditorContent(), "%%word%%");
+	});
+});
+
+describe('table-like cursor behavior', () => {
+	it('bold cycle in table-like row should preserve cursor and content', () => {
+		const editor = setupTest("| Low shelf   | 105 |");
+		editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "| **Low** shelf   | 105 |");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "| Low shelf   | 105 |");
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 4 } });
+	});
+
+	it('bold apply should recover cursor when first restore is externally overridden', async () => {
+		const editor = setupTest("| Low shelf   | 105 |");
+		editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
+
+		const originalSetCursor = editor.setCursor.bind(editor);
+		let firstRestoreCall = true;
+		(editor as unknown as { setCursor: typeof editor.setCursor }).setCursor = ((pos: EditorPosition | number, ch?: number) => {
+			if (firstRestoreCall) {
+				firstRestoreCall = false;
+				originalSetCursor({ line: 0, ch: 1 });
+				return;
+			}
+			originalSetCursor(pos, ch);
+		}) as typeof editor.setCursor;
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "| **Low** shelf   | 105 |");
+		await new Promise(resolve => setTimeout(resolve, 0));
+		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 6 }, head: { line: 0, ch: 6 } });
+	});
+});
+
+describe('checkbox switching', () => {
+	it('should detect checkbox on cursor line and replace its type', () => {
+		const editor = setupTest("- [ ] task");
+		editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
+
+		const checkbox = transformer.getCheckboxAtCursor();
+		assert.ok(checkbox);
+		assert.strictEqual(checkbox.checkboxChar, " ");
+		assert.deepStrictEqual(checkbox.from, { line: 0, ch: 3 });
+		assert.deepStrictEqual(checkbox.to, { line: 0, ch: 4 });
+
+		const changed = transformer.changeCheckboxAtCursor("?");
+		assert.strictEqual(changed, true);
+		assert.strictEqual(editor.getEditorContent(), "- [?] task");
+	});
+
+	it('should support nested indentation and checked checkbox changes', () => {
+		const editor = setupTest("  - [x] done");
+		editor.setSelection({ line: 0, ch: 6 }, { line: 0, ch: 6 });
+
+		const changed = transformer.changeCheckboxAtCursor("b");
+		assert.strictEqual(changed, true);
+		assert.strictEqual(editor.getEditorContent(), "  - [b] done");
+	});
+
+	it('should return false when cursor line is not a checkbox task', () => {
+		const editor = setupTest("| table | row |");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		assert.strictEqual(transformer.getCheckboxAtCursor(), null);
+		assert.strictEqual(transformer.changeCheckboxAtCursor("x"), false);
+		assert.strictEqual(editor.getEditorContent(), "| table | row |");
+	});
+
+	it('should change checkbox type across multiple cursor selections', () => {
+		const editor = setupTest("- [ ] first\nnot a task\n- [x] third");
+		editor.selections = [
+			{ anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 4 } },
+			{ anchor: { line: 1, ch: 2 }, head: { line: 1, ch: 2 } },
+			{ anchor: { line: 2, ch: 4 }, head: { line: 2, ch: 4 } },
+		];
+
+		const changedCount = transformer.changeCheckboxAtSelections("?");
+		assert.strictEqual(changedCount, 2);
+		assert.strictEqual(editor.getEditorContent(), "- [?] first\nnot a task\n- [?] third");
+	});
+});
+
+describe('Multi-line Operations', () => {
+	it('should correctly toggle bold/italics interleaving on bullet lists', () => {
+		const editor = setupTest("- first line\n- second line\n  - third line");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 2, ch: 14 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "- **first line**\n- **second line**\n  - **third line**");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "- _**first line**_\n- _**second line**_\n  - _**third line**_");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "- _first line_\n- _second line_\n  - _third line_");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "- first line\n- second line\n  - third line");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "- **first line**\n- **second line**\n  - **third line**");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "- _**first line**_\n- _**second line**_\n  - _**third line**_");
+	});
+
+	it('highlight: should un-highlight headings when selection starts/ends on blank lines', () => {
+		const editor = setupTest("before\n\n# ==Heading A==\n## ==Heading B==\n\nafter");
+		editor.setSelection({ line: 1, ch: 0 }, { line: 4, ch: 0 });
+		transformer.transformText('highlight');
+		assert.strictEqual(editor.getEditorContent(), "before\n\n# Heading A\n## Heading B\n\nafter");
+	});
+
+	it('remove formatting: should remove supported markers by line and word', () => {
+		const editor = setupTest("# ==Heading==\nSome _it_ and **bold** and <u>u</u>");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 1, ch: 35 });
+		transformer.transformText('removeFormatting');
+		assert.strictEqual(editor.getEditorContent(), "# Heading\nSome it and bold and u");
+	});
+
+	it('remove formatting: should work from bare cursor on formatted word', () => {
+		const editor = setupTest("foo **bar** baz");
+		editor.setSelection({ line: 0, ch: 7 }, { line: 0, ch: 7 });
+		transformer.transformText('removeFormatting');
+		assert.strictEqual(editor.getEditorContent(), "foo bar baz");
+	});
+});
