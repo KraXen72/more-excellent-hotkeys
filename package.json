@@ -1,6 +1,6 @@
 {
 	"name": "meh-more-excellent-hotkeys",
-	"version": "2.0.1",
+	"version": "2.1.0",
 	"description": "MEH: More Excellent Hotkeys",
 	"main": "main.js",
 	"type": "module",
