@@ -33,6 +33,8 @@ this plugin adds editor commands you can bind to your own hotkeys (no default bi
 
 ## checkbox picker
 ![checkbox picker screenshot](./screenshots/checkbox-picker.png)
+_To get the same icons as I have in the screenshot, see [my snippets repo](https://gitlab.com/minecraftpiston/obsidian-snippets)._
+  
 - Works on task lines like `- [ ] item`
 - Supports Obsidian extended checkbox markers (hardcoded for now)
 - Opens as a fuzzy picker modal
