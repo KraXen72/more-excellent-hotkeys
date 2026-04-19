@@ -1,12 +1,13 @@
-import { App, Editor, Menu, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
-import { TextTransformer, TextTransformerSettings } from './engine';
+import type { Editor, Menu } from 'obsidian';
+import { Notice, Plugin } from 'obsidian';
 import { CheckboxTypeSuggestModal } from './checkbox-suggest';
-
-interface SmarterHotkeysSettings extends TextTransformerSettings {}
-
-const DEFAULT_SETTINGS: SmarterHotkeysSettings = {
-	useAsteriskForItalics: false,
-};
+import { TextTransformer } from './engine';
+import {
+	DEFAULT_SETTINGS,
+	normalizeCheckboxOptions,
+	SmarterHotkeysSettings,
+	SmarterHotkeysSettingTab,
+} from './settings';
 
 const TextTransformOperations = [
   "bold",
@@ -78,7 +79,10 @@ export default class SmarterHotkeys extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const loadedData = await this.loadData();
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData, {
+			extendedCheckboxes: normalizeCheckboxOptions(loadedData?.extendedCheckboxes),
+		});
 	}
 
 	async saveSettings() {
@@ -91,36 +95,6 @@ export default class SmarterHotkeys extends Plugin {
 			new Notice('No checkbox found on the current line.');
 			return;
 		}
-		new CheckboxTypeSuggestModal(this.app, this.engine, editor).open();
-	}
-}
-
-class SmarterHotkeysSettingTab extends PluginSettingTab {
-	plugin: SmarterHotkeys;
-
-	constructor(app: App, plugin: SmarterHotkeys) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Use * for italics')
-			.setDesc('Use asterisks instead of underscores for italic toggles.')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.useAsteriskForItalics)
-				.onChange(async (value) => {
-					this.plugin.settings.useAsteriskForItalics = value;
-					this.plugin.engine.setSettings(this.plugin.settings);
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Extended checkbox icons')
-			.setDesc('To see custom checkbox icons, install a theme (or snippet) that provides extended checkbox styling.');
+		new CheckboxTypeSuggestModal(this.app, this.engine, editor, this.settings.extendedCheckboxes).open();
 	}
 }

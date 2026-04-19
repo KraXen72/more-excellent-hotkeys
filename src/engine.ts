@@ -1,5 +1,5 @@
-import type { ValidOperations, StyleOperations } from "./main";
-import { Editor, EditorPosition } from "obsidian";
+import type { Editor, EditorPosition } from "obsidian";
+import type { StyleOperations, ValidOperations } from "./main";
 
 export interface TextTransformerSettings {
 	useAsteriskForItalics: boolean;

@@ -1,24 +1,85 @@
-.meh-checkbox-suggest-item .meh-checkbox-suggest-row {
+.meh-checkbox-suggest-row {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
 }
 
-.meh-checkbox-suggest-item .meh-checkbox-suggest-row .task-list-item-checkbox {
+.meh-checkbox-suggest-row .task-list-item-checkbox {
 	margin: 0;
 	flex: 0 0 auto;
 	pointer-events: none;
 	opacity: 1;
 }
 
-.meh-checkbox-suggest-item .meh-checkbox-suggest-marker {
-	font-family: var(--font-monospace);
-	color: var(--text-faint);
-	min-width: 2.6em;
+.meh-checkbox-suggest-row > label {
+	display: inline-flex;
+	align-items: center;
 }
 
-.meh-checkbox-suggest-item .meh-checkbox-suggest-label {
+.meh-checkbox-suggest-marker {
+	font-family: var(--font-monospace);
+	color: var(--text-faint);
+	/* min-width: 2.6em; */
+}
+
+.meh-checkbox-suggest-label {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.meh-checkbox-settings-submenu {
+	border-radius: var(--radius-s);
+	padding: 0.25rem 0 0.75rem;
+}
+
+.meh-checkbox-option-row {
+	padding-block: var(--size-2-2);
+	border-radius: var(--radius-m);
+	margin-inline-start: var(--size-4-4);
+	padding-inline-start: 0;
+}
+
+.meh-checkbox-option-row .setting-item-control {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	width: 100%;
+}
+
+.meh-checkbox-option-preview {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	min-width: 1.6rem;
+}
+
+.meh-checkbox-option-preview-row .meh-checkbox-suggest-marker {
+	display: none;
+}
+
+.meh-checkbox-option-marker-wrap {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.2rem;
+	white-space: nowrap;
+	font-family: var(--font-monospace);
+}
+
+.meh-checkbox-option-char {
+	width: 2.2em;
+	text-align: center;
+}
+
+.meh-checkbox-option-label {
+	flex: 1 1 auto;
+	min-width: 12rem;
+}
+
+.meh-checkbox-option-btn {
+	flex: 0 0 auto;
+}
+
+.meh-checkbox-option-btn-danger {
+	color: var(--color-red);
 }

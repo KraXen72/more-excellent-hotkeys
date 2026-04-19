@@ -1,44 +1,18 @@
-import { App, Editor, SuggestModal } from 'obsidian';
+import type { App, Editor } from "obsidian";
+import { SuggestModal } from 'obsidian';
+import { CheckboxOption, renderCheckboxPreview } from './checkbox-preview';
 import { TextTransformer } from './engine';
-
-export interface CheckboxOption {
-	char: string;
-	label: string;
-}
-
-export const checkboxOptions: CheckboxOption[] = [
-	{ char: ' ', label: 'to-do (unchecked)' },
-	{ char: '/', label: 'incomplete (half done)' },
-	{ char: 'x', label: 'done' },
-	{ char: '>', label: 'forwarded' },
-	{ char: '<', label: 'scheduling' },
-	{ char: '?', label: 'question' },
-	{ char: '!', label: 'important' },
-	{ char: '"', label: 'quote' },
-	{ char: '-', label: 'canceled' },
-	{ char: '*', label: 'star' },
-	{ char: 'l', label: 'location' },
-	{ char: 'i', label: 'information' },
-	{ char: 'S', label: 'savings' },
-	{ char: 'I', label: 'idea' },
-	{ char: 'f', label: 'fire' },
-	{ char: 'k', label: 'key' },
-	{ char: 'u', label: 'up' },
-	{ char: 'd', label: 'down' },
-	{ char: 'w', label: 'win' },
-	{ char: 'p', label: 'pros' },
-	{ char: 'c', label: 'cons' },
-	{ char: 'b', label: 'bookmark' },
-];
 
 export class CheckboxTypeSuggestModal extends SuggestModal<CheckboxOption> {
 	engine: TextTransformer;
 	editor: Editor;
+	options: CheckboxOption[];
 
-	constructor(app: App, engine: TextTransformer, editor: Editor) {
+	constructor(app: App, engine: TextTransformer, editor: Editor, options: CheckboxOption[]) {
 		super(app);
 		this.engine = engine;
 		this.editor = editor;
+		this.options = options;
 		this.setPlaceholder('Choose checkbox type...');
 		this.setInstructions([
 			{ command: '↑↓', purpose: 'navigate checkbox types' },
@@ -50,8 +24,8 @@ export class CheckboxTypeSuggestModal extends SuggestModal<CheckboxOption> {
 	getSuggestions(query: string): CheckboxOption[] {
 		const raw = query.trim();
 		const q = query.trim().toLowerCase();
-		if (!q) return checkboxOptions;
-		return checkboxOptions
+		if (!q) return this.options;
+		return this.options
 			.filter((item) => {
 				const marker = item.char === ' ' ? '[ ]' : `[${item.char}]`;
 				return marker.toLowerCase().includes(q)
@@ -87,16 +61,7 @@ export class CheckboxTypeSuggestModal extends SuggestModal<CheckboxOption> {
 	renderSuggestion(item: CheckboxOption, el: HTMLElement): void {
 		el.addClass('meh-checkbox-suggest-item');
 		el.setAttr('data-checkbox-type', item.char === ' ' ? 'space' : item.char);
-
-		const row = el.createDiv({ cls: 'meh-checkbox-suggest-row' });
-		const checkbox = row.createEl('input', { cls: 'task-list-item-checkbox', type: 'checkbox' });
-		checkbox.checked = item.char !== ' ';
-		checkbox.setAttr('data-task', item.char);
-		checkbox.disabled = true;
-
-		const marker = item.char === ' ' ? '[ ]' : `[${item.char}]`;
-		row.createSpan({ cls: 'meh-checkbox-suggest-marker', text: marker });
-		row.createSpan({ cls: 'meh-checkbox-suggest-label', text: item.label });
+		renderCheckboxPreview(el, item, { includeLabel: true });
 	}
 
 	onChooseSuggestion(item: CheckboxOption): void {

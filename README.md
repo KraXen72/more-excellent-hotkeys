@@ -30,13 +30,14 @@ this plugin adds editor commands you can bind to your own hotkeys (no default bi
 
 ## settings
 - Use `*` for italics (default: off, `_` is used)
+- Extended checkboxes submenu for managing picker rows (`- [x] description`) with add/delete and reset-to-defaults controls
 
 ## checkbox picker
 ![checkbox picker screenshot](./screenshots/checkbox-picker.png)
 _To get the same icons as I have in the screenshot, see [my snippets repo](https://gitlab.com/minecraftpiston/obsidian-snippets)._
   
 - Works on task lines like `- [ ] item`
-- Supports Obsidian extended checkbox markers (hardcoded for now)
+- Supports configurable Obsidian extended checkbox markers
 - Opens as a fuzzy picker modal
 - Also available from the editor right-click menu when cursor is on a checkbox line
 
