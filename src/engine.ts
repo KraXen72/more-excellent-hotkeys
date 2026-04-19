@@ -22,6 +22,13 @@ interface BareToggleContext {
 	styledLine: string;
 }
 
+interface CheckboxAtCursor {
+	line: number;
+	checkboxChar: string;
+	from: EditorPosition;
+	to: EditorPosition;
+}
+
 const trimBefore = [
 	"###### ",
 	"##### ",
@@ -79,6 +86,7 @@ const reg_before = new RegExp(`${reg_char}*$`);
 const reg_after = new RegExp(`^${reg_char}*`);
 const reg_marker_before = new RegExp(`(${reg_marker_bare})+$`);
 const reg_marker_after = new RegExp(`^(${reg_marker_bare})+`);
+const checkboxRegex = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([^\]])(\])/;
 
 function escapeRegExp(str: string) {
 	return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
@@ -92,13 +100,14 @@ export class TextTransformer {
 	
 	// state:
 	editor: Editor;
-	// if we trim in trimSmartSelection, we need to accout for that
-	// when restoring the selection position, so restored selection looks proper
+	// if we trim in trimSmartSelection, we need to account for that
+	// when restoring the selection position
 	trimmedBeforeLength: number = 0;
 	trimmedAfterLength: number = 0;
 
 	inProgress: boolean = false;
 	lastBareToggleContext: BareToggleContext | null = null;
+	pendingDeferredRestores = new Set<ReturnType<typeof setTimeout>>();
 	settings: TextTransformerSettings = {
 		useAsteriskForItalics: false,
 	};
@@ -149,6 +158,7 @@ export class TextTransformer {
 	transformText(op: ValidOperations, toggle = true) {
 		if (this.inProgress) return; // large operations (1/2+ of a note) can be slow, rather noop.
 		this.inProgress = true;
+		this.clearDeferredRestores();
 		// get & copy all selections for multi-cursor/multi-selection operations
 		const selections: Range[] = this.editor.listSelections().map(_sel => {
 			const { from, to } = this.swapCursorsIfNeeded(
@@ -158,77 +168,73 @@ export class TextTransformer {
 			return { from: {...from}, to: {...to} } satisfies Range;
 		});
 
-		for (let i = 0; i < selections.length; i++) {
-			const sel = selections[i];
-			this.trimmedBeforeLength = 0;
-			this.trimmedAfterLength = 0;
+		try {
+			for (let i = 0; i < selections.length; i++) {
+				const sel = selections[i];
+				this.trimmedBeforeLength = 0;
+				this.trimmedAfterLength = 0;
 
-			// remember original line lengths, so we can adjust the following selections
-			const originalFromLineLength = this.editor.getLine(sel.from.line).length;
-			const originalToLineLength = this.editor.getLine(sel.to.line).length;
+				// remember original line lengths, so we can adjust the following selections
+				const originalFromLineLength = this.editor.getLine(sel.from.line).length;
+				const originalToLineLength = this.editor.getLine(sel.to.line).length;
 
-			if (op === "removeFormatting") {
+				if (op === "removeFormatting") {
+					const smartSel = this.getSmartSelection(sel);
+					const selection = this.editor.getRange(sel.from, sel.to);
+					const isSelection = !!selection && selection.length > 0;
+					this.removeFormatting(smartSel, isSelection);
+
+					for (let j = i + 1; j < selections.length; j++) {
+						const sel2 = selections[j];
+						this.updateSelectionOffsets(sel, sel2, originalFromLineLength, originalToLineLength);
+					}
+					continue;
+				}
+
+				const checkSel = this.getSmartSelection(sel, false);
 				const smartSel = this.getSmartSelection(sel);
 				const selection = this.editor.getRange(sel.from, sel.to);
 				const isSelection = !!selection && selection.length > 0;
-				this.removeFormatting(smartSel, isSelection);
+	
+				// try removing styles first
+				let stylesRemoved = false;
+				const removeTarget = this.getStyleRemovalTarget(checkSel, smartSel, op);
+				if (removeTarget) {
+					this.removeStyle(sel, removeTarget, op, isSelection);
+					stylesRemoved = true;
+				} else {
+					const incompatibleStyle = this.findIncompatibleStyle(checkSel, smartSel, op);
+					if (incompatibleStyle) {
+						const incompatibleTarget = this.getStyleRemovalTarget(checkSel, smartSel, incompatibleStyle);
+						if (incompatibleTarget) {
+							this.removeStyle(sel, incompatibleTarget, incompatibleStyle, isSelection);
+							stylesRemoved = true;
+						}
+					}
+				}
+	
+				// don't apply the style if we're only toggling and we just removed the style
+				if (!toggle || !stylesRemoved) {
+					const smartSel = this.getSmartSelection(sel, true);
+					this.applyStyle(sel, smartSel, op, isSelection)
+				}
 
+				// adjust cursor positions if they're on the same line
 				for (let j = i + 1; j < selections.length; j++) {
 					const sel2 = selections[j];
 					this.updateSelectionOffsets(sel, sel2, originalFromLineLength, originalToLineLength);
 				}
-				continue;
 			}
-
-			const checkSel = this.getSmartSelection(sel, false);
-			const smartSel = this.getSmartSelection(sel);
-			const selection = this.editor.getRange(sel.from, sel.to);
-			const isSelection = !!selection && selection.length > 0;
-	
-			// console.log("processing:", sel, 
-			// 	"value:", selection, smartSel, 
-			// 	"smartSelVal:", this.editor.getRange(smartSel.from, smartSel.to)
-			// );
-	
-			// try removing styles first
-			let stylesRemoved = false;
-			const removeTarget = this.getStyleRemovalTarget(checkSel, smartSel, op);
-			if (removeTarget) {
-				this.removeStyle(sel, removeTarget, op, isSelection);
-				stylesRemoved = true;
-			} else {
-				const incompatibleStyle = this.findIncompatibleStyle(checkSel, smartSel, op);
-				if (incompatibleStyle) {
-					const incompatibleTarget = this.getStyleRemovalTarget(checkSel, smartSel, incompatibleStyle);
-					if (incompatibleTarget) {
-						this.removeStyle(sel, incompatibleTarget, incompatibleStyle, isSelection);
-						stylesRemoved = true;
-					}
-				}
-			}
-	
-			// don't apply the style if we're only toggling and we just removed the style
-			if (!toggle || toggle && !stylesRemoved) {
-				const smartSel = this.getSmartSelection(sel, true);
-				this.applyStyle(sel, smartSel, op, isSelection)
-			}
-
-			// adjust cursor positions if they're on the same line
-			for (let j = i + 1; j < selections.length; j++) {
-				const sel2 = selections[j];
-				this.updateSelectionOffsets(sel, sel2, originalFromLineLength, originalToLineLength);
-			}
+		} finally {
+			this.inProgress = false;
 		}
-		this.inProgress = false;
 	}
 
 	getStyleRemovalTarget(checkSel: Range, smartSel: Range, op: StyleOperations) {
 		if (this.insideStyle(checkSel, op)) return checkSel;
 		if (this.insideStyle(smartSel, op) || this.multilineInsideStyle(smartSel, op)) return smartSel;
-		const nestedCheck = this.getNestedStyleRemovalTarget(checkSel, op);
-		if (nestedCheck) return nestedCheck;
-		const nestedSmart = this.getNestedStyleRemovalTarget(smartSel, op);
-		if (nestedSmart) return nestedSmart;
+		if (this.canRemoveStyleFromValue(this.editor.getRange(checkSel.from, checkSel.to), op)) return checkSel;
+		if (this.canRemoveStyleFromSelection(smartSel, op)) return smartSel;
 		return false;
 	}
 
@@ -319,31 +325,21 @@ export class TextTransformer {
 		return { start: style.start.length, end: style.end.length };
 	}
 
-	getNestedStyleRemovalTarget(sel: Range, op: StyleOperations) {
-		if (sel.from.line !== sel.to.line) return false;
+	canRemoveStyleFromValue(value: string, op: StyleOperations) {
+		const { start: prefix, end: suffix } = this.getStyleConfig(op);
+		return this.modifyStyleValue(value, op, 'remove', prefix, suffix) !== value;
+	}
 
-		let current = { from: { ...sel.from }, to: { ...sel.to } } satisfies Range;
-		for (let depth = 0; depth < styleOperations.length; depth++) {
-			const value = this.editor.getRange(current.from, current.to);
-			if (this.isStyleWrapped(value, op)) return current;
+	canRemoveStyleFromSelection(sel: Range, op: StyleOperations) {
+		const value = this.editor.getRange(sel.from, sel.to);
+		const lines = value.split("\n");
+		const nonEmptyLines = lines.filter((line) => line.trim().length > 0);
+		if (!nonEmptyLines.length) return false;
 
-			let peeled = false;
-			for (const outer of styleOperations) {
-				if (outer === op || !this.isStackable(op, outer)) continue;
-				const wrapper = this.getStyleWrapperLengths(value, outer);
-				if (!wrapper) continue;
-
-				current = {
-					from: this.offsetCursor(current.from, wrapper.start),
-					to: this.offsetCursor(current.to, -wrapper.end),
-				} satisfies Range;
-				peeled = true;
-				break;
-			}
-
-			if (!peeled) return false;
-		}
-		return false;
+		return nonEmptyLines.some((line) => {
+			const trimmedLine = this.trimString(line).trim();
+			return trimmedLine.length > 0 && this.canRemoveStyleFromValue(trimmedLine, op);
+		});
 	}
 
 	/** get the Range of the smart selection created by expanding the current one / from cursor*/
@@ -432,7 +428,7 @@ export class TextTransformer {
 		return this.#trimStringWithParts(sel, false).result;
 	}
 
-	// pre-trim whitespace (correct selection lmao)
+	// pre-trim whitespace to keep restored selections stable
 	whitespacePretrim(sel: Range): Range {
 		const selection = this.trimString(this.editor.getRange(sel.from, sel.to));
 		const whitespaceBefore = (selection.match(/^\s+/) || [""])[0];
@@ -551,11 +547,29 @@ export class TextTransformer {
 		return value.endsWith(marker);
 	}
 
-	removeStyleMarkers(value: string, op: StyleOperations, prefix: string, suffix: string) {
-		if (op === "italics") return this.removeItalicsMarkers(value);
-		return value
-			.replace(new RegExp("^" + escapeRegExp(prefix)), "")
-			.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+	removeStyleMarkers(value: string, op: StyleOperations, prefix: string, suffix: string): string {
+		if (op === "italics") {
+			const direct = this.removeItalicsMarkers(value);
+			if (direct !== value) return direct;
+		} else {
+			const direct = value
+				.replace(new RegExp("^" + escapeRegExp(prefix)), "")
+				.replace(new RegExp(escapeRegExp(suffix) + "$"), "");
+			if (direct !== value) return direct;
+		}
+
+		for (const outer of styleOperations) {
+			if (outer === op || !this.isStackable(op, outer)) continue;
+			const wrapper = this.getStyleWrapperLengths(value, outer);
+			if (!wrapper) continue;
+
+			const outerPrefix = value.slice(0, wrapper.start);
+			const outerSuffix = value.slice(value.length - wrapper.end);
+			const inner = value.slice(wrapper.start, value.length - wrapper.end);
+			const removedInner = this.removeStyleMarkers(inner, op, prefix, suffix);
+			if (removedInner !== inner) return outerPrefix + removedInner + outerSuffix;
+		}
+		return value;
 	}
 
 	modifyStyleValue(value: string, op: StyleOperations, modification: 'apply' | 'remove', prefix: string, suffix: string) {
@@ -567,9 +581,24 @@ export class TextTransformer {
 		return { line, ch: Math.max(0, Math.min(ch, this.editor.getLine(line).length)) } satisfies EditorPosition;
 	}
 
+	clearDeferredRestores() {
+		for (const timeoutId of this.pendingDeferredRestores) {
+			clearTimeout(timeoutId);
+		}
+		this.pendingDeferredRestores.clear();
+	}
+
+	scheduleDeferredRestore(fn: () => void) {
+		const timeoutId = setTimeout(() => {
+			this.pendingDeferredRestores.delete(timeoutId);
+			fn();
+		}, 0);
+		this.pendingDeferredRestores.add(timeoutId);
+	}
+
 	setCursorWithRetry(pos: EditorPosition) {
 		this.editor.setCursor(pos);
-		setTimeout(() => this.editor.setCursor(pos), 0);
+		this.scheduleDeferredRestore(() => this.editor.setCursor(pos));
 	}
 
 	/** either add apply or remove a style for a given string */
@@ -595,7 +624,7 @@ export class TextTransformer {
 		isSelection: boolean,
 		debug_dryRun = false,
 	) {
-		// "fix" user's selection lmao (remove whitespaces) so it doesen't look goofy afterwards
+		// pre-trim whitespace from user's selection for cleaner restore behavior
 		const sel2 = this.whitespacePretrim(original);
 
 		const { start: prefix, end: suffix } = this.getStyleConfig(op);
@@ -628,7 +657,7 @@ export class TextTransformer {
 			}
 
 			this.editor.setSelection(restoreSel.from, restoreSel.to); // v fix live preview "adjusting" selection
-			setTimeout(() => this.editor.setSelection(restoreSel.from, restoreSel.to), 0)
+			this.scheduleDeferredRestore(() => this.editor.setSelection(restoreSel.from, restoreSel.to));
 		} else {
 			const cursor = sel2.to; // save cursor
 			const lineBefore = this.editor.getLine(cursor.line);
@@ -713,5 +742,53 @@ export class TextTransformer {
 
 	removeStyle(sel: Range, smartSel: Range, wrappedWith: StyleOperations, isSelection: boolean) {
 		this.#modifySelection(sel, smartSel, wrappedWith, 'remove', isSelection);
+	}
+
+	getCheckboxAtLine(line: number): CheckboxAtCursor | null {
+		const lineValue = this.editor.getLine(line);
+		const match = lineValue.match(checkboxRegex);
+		if (!match) return null;
+
+		const prefixLength = match[1].length;
+		const checkboxChar = match[2];
+		const charFrom = prefixLength;
+		return {
+			line,
+			checkboxChar,
+			from: { line, ch: charFrom },
+			to: { line, ch: charFrom + 1 },
+		};
+	}
+
+	getCheckboxesAtSelections() {
+		const selections = this.editor.listSelections();
+		const lines = new Set<number>();
+		for (const selection of selections) {
+			lines.add(selection.head.line);
+		}
+		return [...lines]
+			.sort((a, b) => a - b)
+			.map((line) => this.getCheckboxAtLine(line))
+			.filter((checkbox): checkbox is CheckboxAtCursor => !!checkbox);
+	}
+
+	getCheckboxAtCursor(): CheckboxAtCursor | null {
+		return this.getCheckboxesAtSelections()[0] ?? null;
+	}
+
+	changeCheckboxAtCursor(nextCheckboxChar: string) {
+		const checkbox = this.getCheckboxAtCursor();
+		if (!checkbox || nextCheckboxChar.length !== 1) return false;
+		this.editor.replaceRange(nextCheckboxChar, checkbox.from, checkbox.to);
+		return true;
+	}
+
+	changeCheckboxAtSelections(nextCheckboxChar: string) {
+		if (nextCheckboxChar.length !== 1) return 0;
+		const checkboxes = this.getCheckboxesAtSelections();
+		for (const checkbox of checkboxes) {
+			this.editor.replaceRange(nextCheckboxChar, checkbox.from, checkbox.to);
+		}
+		return checkboxes.length;
 	}
 }

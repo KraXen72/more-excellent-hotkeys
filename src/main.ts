@@ -1,7 +1,6 @@
-import { App, Editor, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, Menu, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import { TextTransformer, TextTransformerSettings } from './engine';
-
-// Remember to rename these classes and interfaces!
+import { CheckboxTypeSuggestModal } from './checkbox-suggest';
 
 interface SmarterHotkeysSettings extends TextTransformerSettings {}
 
@@ -56,6 +55,21 @@ export default class SmarterHotkeys extends Plugin {
 			});
 		}
 
+		this.addCommand({
+			id: 'meh-change-checkbox',
+			name: 'Change checkbox type',
+			editorCallback: (editor: Editor) => this.openCheckboxTypePicker(editor),
+		});
+
+		this.registerEvent(this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor) => {
+			this.engine.setEditor(editor);
+			if (!this.engine.getCheckboxAtCursor()) return;
+			menu.addItem((item) => item
+				.setTitle('Change checkbox type')
+				.setIcon('check-square')
+				.onClick(() => this.openCheckboxTypePicker(editor)));
+		}));
+
 		this.addSettingTab(new SmarterHotkeysSettingTab(this.app, this));
 	}
 
@@ -69,6 +83,15 @@ export default class SmarterHotkeys extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	openCheckboxTypePicker(editor: Editor) {
+		this.engine.setEditor(editor);
+		if (!this.engine.getCheckboxAtCursor()) {
+			new Notice('No checkbox found on the current line.');
+			return;
+		}
+		new CheckboxTypeSuggestModal(this.app, this.engine, editor).open();
 	}
 }
 
@@ -95,5 +118,9 @@ class SmarterHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.engine.setSettings(this.plugin.settings);
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('Extended checkbox icons')
+			.setDesc('To see custom checkbox icons, install a theme (or snippet) that provides extended checkbox styling.');
 	}
 }

@@ -430,6 +430,14 @@ describe('stackable formatting', () => {
 		assert.strictEqual(editor.getEditorContent(), "_word_");
 		assert.deepStrictEqual(editor.listSelections()[0], { anchor: { line: 0, ch: 1 }, head: { line: 0, ch: 5 } });
 	});
+
+	it('should remove inner style from multiline stacked lines', () => {
+		const editor = setupTest("==**first**==\n==**second**==");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 1, ch: 14 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "==first==\n==second==");
+	});
 });
 
 describe('non-stackable formatting', () => {
@@ -483,7 +491,78 @@ describe('table-like cursor behavior', () => {
 	});
 });
 
+describe('checkbox switching', () => {
+	it('should detect checkbox on cursor line and replace its type', () => {
+		const editor = setupTest("- [ ] task");
+		editor.setSelection({ line: 0, ch: 4 }, { line: 0, ch: 4 });
+
+		const checkbox = transformer.getCheckboxAtCursor();
+		assert.ok(checkbox);
+		assert.strictEqual(checkbox.checkboxChar, " ");
+		assert.deepStrictEqual(checkbox.from, { line: 0, ch: 3 });
+		assert.deepStrictEqual(checkbox.to, { line: 0, ch: 4 });
+
+		const changed = transformer.changeCheckboxAtCursor("?");
+		assert.strictEqual(changed, true);
+		assert.strictEqual(editor.getEditorContent(), "- [?] task");
+	});
+
+	it('should support nested indentation and checked checkbox changes', () => {
+		const editor = setupTest("  - [x] done");
+		editor.setSelection({ line: 0, ch: 6 }, { line: 0, ch: 6 });
+
+		const changed = transformer.changeCheckboxAtCursor("b");
+		assert.strictEqual(changed, true);
+		assert.strictEqual(editor.getEditorContent(), "  - [b] done");
+	});
+
+	it('should return false when cursor line is not a checkbox task', () => {
+		const editor = setupTest("| table | row |");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		assert.strictEqual(transformer.getCheckboxAtCursor(), null);
+		assert.strictEqual(transformer.changeCheckboxAtCursor("x"), false);
+		assert.strictEqual(editor.getEditorContent(), "| table | row |");
+	});
+
+	it('should change checkbox type across multiple cursor selections', () => {
+		const editor = setupTest("- [ ] first\nnot a task\n- [x] third");
+		editor.selections = [
+			{ anchor: { line: 0, ch: 4 }, head: { line: 0, ch: 4 } },
+			{ anchor: { line: 1, ch: 2 }, head: { line: 1, ch: 2 } },
+			{ anchor: { line: 2, ch: 4 }, head: { line: 2, ch: 4 } },
+		];
+
+		const changedCount = transformer.changeCheckboxAtSelections("?");
+		assert.strictEqual(changedCount, 2);
+		assert.strictEqual(editor.getEditorContent(), "- [?] first\nnot a task\n- [?] third");
+	});
+});
+
 describe('Multi-line Operations', () => {
+	it('should correctly toggle bold/italics interleaving on bullet lists', () => {
+		const editor = setupTest("- first line\n- second line\n  - third line");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 2, ch: 14 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "- **first line**\n- **second line**\n  - **third line**");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "- _**first line**_\n- _**second line**_\n  - _**third line**_");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "- _first line_\n- _second line_\n  - _third line_");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "- first line\n- second line\n  - third line");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "- **first line**\n- **second line**\n  - **third line**");
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "- _**first line**_\n- _**second line**_\n  - _**third line**_");
+	});
+
 	it('highlight: should un-highlight headings when selection starts/ends on blank lines', () => {
 		const editor = setupTest("before\n\n# ==Heading A==\n## ==Heading B==\n\nafter");
 		editor.setSelection({ line: 1, ch: 0 }, { line: 4, ch: 0 });
@@ -504,81 +583,4 @@ describe('Multi-line Operations', () => {
 		transformer.transformText('removeFormatting');
 		assert.strictEqual(editor.getEditorContent(), "foo bar baz");
 	});
-
-	// it('should handle multi-line (sloppy) selection', () => {
-	// 	const editor = setupTest("firstTestML1 line\nsecond line\nthird line");
-	// 	editor.setSelection(
-	// 		{ line: 0, ch: 7 },
-	// 		{ line: 2, ch: 4 }
-	// 	);
-	// 	transformer.transformText('bold');
-	// 	assert.strictEqual(
-	// 		editor.getEditorContent(),
-	// 		"firstTestML1 **line\nsecond line\nthird** line"
-	// 	);
-	// });
-
-	// it('should handle multi-line (precise) selection', () => {
-	// 	const editor = setupTest("firstTestML2 line\nsecond line\nthird line");
-	// 	editor.setSelection(
-	// 		{ line: 0, ch: 6 },
-	// 		{ line: 2, ch: 5 }
-	// 	);
-	// 	transformer.transformText('bold');
-	// 	assert.strictEqual(
-	// 		editor.getEditorContent(),
-	// 		"firstTestML2 **line\nsecond line\nthird** line"
-	// 	);
-	// });
-
-	// it('everything selected: should handle bullet points and checkboxes', () => {
-	// 	const editor = setupTest("- [ ] first item\n- [x] second item");
-	// 	editor.setSelection(
-	// 		{ line: 0, ch: 0 },
-	// 		{ line: 1, ch: 17 }
-	// 	);
-	// 	transformer.transformText('bold');
-	// 	assert.strictEqual(
-	// 		editor.getEditorContent(),
-	// 		"- [ ] **first item**\n- [x] **second item**"
-	// 	);
-	// });
 });
-
-// describe('Style Removal', () => {
-// 	it('should remove style when selection matches exactly', () => {
-// 		const editor = setupTest("**hello** there");
-// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 8 });
-// 		transformer.transformText('bold');
-// 		assert.strictEqual(editor.getEditorContent(), "hello there");
-// 	});
-
-// 	it('should handle nested styles', () => {
-// 		const editor = setupTest("**hello ==world==**");
-// 		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 17 });
-// 		transformer.transformText('bold');
-// 		assert.strictEqual(editor.getEditorContent(), "hello ==world==");
-// 	});
-// });
-
-// describe('Edge Cases', () => {
-// 	it('should handle empty lines', () => {
-// 		const editor = setupTest("\n\ntext\n\n");
-// 		editor.setSelection(
-// 			{ line: 0, ch: 0 },
-// 			{ line: 4, ch: 0 }
-// 		);
-// 		transformer.transformText('bold');
-// 		assert.strictEqual(editor.getEditorContent(), "\n\n**text**\n\n");
-// 	});
-
-// 	it('should handle special markdown syntax', () => {
-// 		const editor = setupTest("> [!note] Some text");
-// 		editor.setSelection(
-// 			{ line: 0, ch: 0 },
-// 			{ line: 0, ch: 17 }
-// 		);
-// 		transformer.transformText('bold');
-// 		assert.strictEqual(editor.getEditorContent(), "> [!note] **Some text**");
-// 	});
-// });
