@@ -45,6 +45,17 @@ export class SmarterHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		new Setting(containerEl)
+			.setName('Promote regular bullet points')
+			.setDesc('Allow "Change checkbox type" to turn regular bullet points into task list items.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.promoteRegularBulletPoints)
+				.onChange(async (value) => {
+					this.plugin.settings.promoteRegularBulletPoints = value;
+					this.plugin.engine.setSettings(this.plugin.settings);
+					await this.plugin.saveSettings();
+				}));
+
 		this.displayExtendedCheckboxSubmenu(containerEl);
 	}
 

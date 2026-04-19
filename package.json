@@ -1,12 +1,12 @@
 {
-	"name": "meh-more-excellent-hotkeys",
+	"name": "more-excellent-hotkeys",
 	"version": "2.1.0",
-	"description": "MEH: More Excellent Hotkeys",
+	"description": "Smart quality-of-life hotkeys",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
 		"build:dev": "node esbuild.config.mjs",
-		"watcher": "DEST='/media/win/#blackhole/.obsidian/plugins/meh-more-excellent-hotkeys/' && mkdir -p \"$DEST\" && ls main.js manifest.json styles.css | entr cp main.js manifest.json styles.css \"$DEST\"",
+		"watcher": "DEST='/media/win/#blackhole/.obsidian/plugins/more-excellent-hotkeys/' && mkdir -p \"$DEST\" && ls main.js manifest.json styles.css | entr cp main.js manifest.json styles.css \"$DEST\"",
 		"dev": "concurrently --kill-others --names \"build,watch\" -c \"cyan,magenta\" \"pnpm build:dev\" \"pnpm watcher\"",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",

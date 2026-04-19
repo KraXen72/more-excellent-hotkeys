@@ -7,12 +7,14 @@ export class CheckboxTypeSuggestModal extends SuggestModal<CheckboxOption> {
 	engine: TextTransformer;
 	editor: Editor;
 	options: CheckboxOption[];
+	promoteRegularBullets: boolean;
 
-	constructor(app: App, engine: TextTransformer, editor: Editor, options: CheckboxOption[]) {
+	constructor(app: App, engine: TextTransformer, editor: Editor, options: CheckboxOption[], promoteRegularBullets: boolean) {
 		super(app);
 		this.engine = engine;
 		this.editor = editor;
 		this.options = options;
+		this.promoteRegularBullets = promoteRegularBullets;
 		this.setPlaceholder('Choose checkbox type...');
 		this.setInstructions([
 			{ command: '↑↓', purpose: 'navigate checkbox types' },
@@ -66,6 +68,6 @@ export class CheckboxTypeSuggestModal extends SuggestModal<CheckboxOption> {
 
 	onChooseSuggestion(item: CheckboxOption): void {
 		this.engine.setEditor(this.editor);
-		this.engine.changeCheckboxAtSelections(item.char);
+		this.engine.changeCheckboxAtSelections(item.char, this.promoteRegularBullets);
 	}
 }

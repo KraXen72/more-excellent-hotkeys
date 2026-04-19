@@ -537,6 +537,49 @@ describe('checkbox switching', () => {
 		assert.strictEqual(changedCount, 2);
 		assert.strictEqual(editor.getEditorContent(), "- [?] first\nnot a task\n- [?] third");
 	});
+
+	it('should promote regular bullets when enabled', () => {
+		const editor = setupTest("- first");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		const changed = transformer.changeCheckboxAtCursor("?", true);
+		assert.strictEqual(changed, true);
+		assert.strictEqual(editor.getEditorContent(), "- [?] first");
+	});
+
+	it('should promote regular bullets that start with a markdown link', () => {
+		const editor = setupTest("\t- [GitHub - standardnotes/component-relay](https://github.com/standardnotes/component-relay)");
+		editor.setSelection({ line: 0, ch: 3 }, { line: 0, ch: 3 });
+
+		const changed = transformer.changeCheckboxAtCursor("?", true);
+		assert.strictEqual(changed, true);
+		assert.strictEqual(
+			editor.getEditorContent(),
+			"\t- [?] [GitHub - standardnotes/component-relay](https://github.com/standardnotes/component-relay)",
+		);
+	});
+
+	it('should preserve behavior for regular bullets when promotion is disabled', () => {
+		const editor = setupTest("- first");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 2 });
+
+		const changed = transformer.changeCheckboxAtCursor("?", false);
+		assert.strictEqual(changed, false);
+		assert.strictEqual(editor.getEditorContent(), "- first");
+	});
+
+	it('should promote regular bullets in multi-cursor selection mode when enabled', () => {
+		const editor = setupTest("- one\n- [x] two\nthree");
+		editor.selections = [
+			{ anchor: { line: 0, ch: 2 }, head: { line: 0, ch: 2 } },
+			{ anchor: { line: 1, ch: 4 }, head: { line: 1, ch: 4 } },
+			{ anchor: { line: 2, ch: 1 }, head: { line: 2, ch: 1 } },
+		];
+
+		const changedCount = transformer.changeCheckboxAtSelections("?", true);
+		assert.strictEqual(changedCount, 2);
+		assert.strictEqual(editor.getEditorContent(), "- [?] one\n- [?] two\nthree");
+	});
 });
 
 describe('Multi-line Operations', () => {

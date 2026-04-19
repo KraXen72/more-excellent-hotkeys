@@ -3,6 +3,7 @@ import type { StyleOperations, ValidOperations } from "./main";
 
 export interface TextTransformerSettings {
 	useAsteriskForItalics: boolean;
+	promoteRegularBulletPoints: boolean;
 }
 
 interface StyleConfig {
@@ -87,6 +88,7 @@ const reg_after = new RegExp(`^${reg_char}*`);
 const reg_marker_before = new RegExp(`(${reg_marker_bare})+$`);
 const reg_marker_after = new RegExp(`^(${reg_marker_bare})+`);
 const checkboxRegex = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([^\]])(\])/;
+const regularBulletRegex = /^(\s*(?:[-*+]|\d+[.)])\s+)/;
 
 function escapeRegExp(str: string) {
 	return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
@@ -110,6 +112,7 @@ export class TextTransformer {
 	pendingDeferredRestores = new Set<ReturnType<typeof setTimeout>>();
 	settings: TextTransformerSettings = {
 		useAsteriskForItalics: false,
+		promoteRegularBulletPoints: true,
 	};
 	
 	constructor(settings?: Partial<TextTransformerSettings>) {
@@ -128,6 +131,7 @@ export class TextTransformer {
 	setSettings(settings?: Partial<TextTransformerSettings>) {
 		this.settings = {
 			useAsteriskForItalics: false,
+			promoteRegularBulletPoints: true,
 			...settings,
 		};
 	}
@@ -761,13 +765,7 @@ export class TextTransformer {
 	}
 
 	getCheckboxesAtSelections() {
-		const selections = this.editor.listSelections();
-		const lines = new Set<number>();
-		for (const selection of selections) {
-			lines.add(selection.head.line);
-		}
-		return [...lines]
-			.sort((a, b) => a - b)
+		return this.getSelectionLines()
 			.map((line) => this.getCheckboxAtLine(line))
 			.filter((checkbox): checkbox is CheckboxAtCursor => !!checkbox);
 	}
@@ -776,19 +774,69 @@ export class TextTransformer {
 		return this.getCheckboxesAtSelections()[0] ?? null;
 	}
 
-	changeCheckboxAtCursor(nextCheckboxChar: string) {
-		const checkbox = this.getCheckboxAtCursor();
-		if (!checkbox || nextCheckboxChar.length !== 1) return false;
-		this.editor.replaceRange(nextCheckboxChar, checkbox.from, checkbox.to);
+	getRegularBulletInsertAtLine(line: number): EditorPosition | null {
+		const lineValue = this.editor.getLine(line);
+		const match = lineValue.match(regularBulletRegex);
+		if (!match) return null;
+		return { line, ch: match[1].length };
+	}
+
+	getSelectionLines() {
+		return [...new Set(this.editor.listSelections().map((selection) => selection.head.line))]
+			.sort((a, b) => a - b);
+	}
+
+	getCursorLine() {
+		return this.editor.listSelections()[0]?.head.line ?? null;
+	}
+
+	canChangeCheckboxAtCursor(promoteRegularBullets = false) {
+		if (this.getCheckboxAtCursor()) return true;
+		if (!promoteRegularBullets) return false;
+		const line = this.getCursorLine();
+		if (line == null) return false;
+		return !!this.getRegularBulletInsertAtLine(line);
+	}
+
+	changeCheckboxAtCursor(nextCheckboxChar: string, promoteRegularBullets = false) {
+		if (nextCheckboxChar.length !== 1) return false;
+		const line = this.getCursorLine();
+		if (line == null) return false;
+		const checkbox = this.getCheckboxAtLine(line);
+		if (checkbox) {
+			this.editor.replaceRange(nextCheckboxChar, checkbox.from, checkbox.to);
+			return true;
+		}
+		if (!promoteRegularBullets) return false;
+		const insertAt = this.getRegularBulletInsertAtLine(line);
+		if (!insertAt) return false;
+		this.editor.replaceRange(`[${nextCheckboxChar}] `, insertAt);
 		return true;
 	}
 
-	changeCheckboxAtSelections(nextCheckboxChar: string) {
-		if (nextCheckboxChar.length !== 1) return 0;
-		const checkboxes = this.getCheckboxesAtSelections();
-		for (const checkbox of checkboxes) {
+	changeCheckboxAtLine(line: number, nextCheckboxChar: string, promoteRegularBullets = false) {
+		const checkbox = this.getCheckboxAtLine(line);
+		if (checkbox) {
 			this.editor.replaceRange(nextCheckboxChar, checkbox.from, checkbox.to);
+			return true;
 		}
-		return checkboxes.length;
+
+		if (!promoteRegularBullets) return false;
+		const insertAt = this.getRegularBulletInsertAtLine(line);
+		if (!insertAt) return false;
+		this.editor.replaceRange(`[${nextCheckboxChar}] `, insertAt);
+		return true;
+	}
+
+	changeCheckboxAtSelections(nextCheckboxChar: string, promoteRegularBullets = false) {
+		if (nextCheckboxChar.length !== 1) return 0;
+		const lines = this.getSelectionLines();
+		let changedCount = 0;
+		for (const line of lines) {
+			if (this.changeCheckboxAtLine(line, nextCheckboxChar, promoteRegularBullets)) {
+				changedCount++;
+			}
+		}
+		return changedCount;
 	}
 }

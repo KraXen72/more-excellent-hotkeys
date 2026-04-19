@@ -1,4 +1,4 @@
-# MEH: More Excellent Hotkeys
+# More Excellent Hotkeys (MEH)
   
 small obsidian plugin for quick markdown formatting toggles.  
 ![plugin showcse](./screenshots/meh-more-excellent-hotkeys-showcase-2026-04-19-v3.gif)
@@ -12,9 +12,9 @@ small obsidian plugin for quick markdown formatting toggles.
 you can probably use BRAT (i haven't tested it).  
   
 ---
-download `meh-more-excellent-hotkeys.zip` from the latest release.  
-unzip it, such that its contents are in `<your vaullt>/.obsidian/plugins/meh-more-excellent-hotkeys`,  
-e.g. `<your vaullt>/.obsidian/plugins/meh-more-excellent-hotkeys/main.js`  
+download `more-excellent-hotkeys.zip` from the latest release.  
+unzip it, such that its contents are in `<your vaullt>/.obsidian/plugins/more-excellent-hotkeys`,  
+e.g. `<your vaullt>/.obsidian/plugins/more-excellent-hotkeys/main.js`  
 
 ## commands added
 this plugin adds editor commands you can bind to your own hotkeys (no default bindings).  
@@ -30,6 +30,7 @@ this plugin adds editor commands you can bind to your own hotkeys (no default bi
 
 ## settings
 - Use `*` for italics (default: off, `_` is used)
+- Promote regular bullet points (default: on) for `Change checkbox type`
 - Extended checkboxes submenu for managing picker rows (`- [x] description`) with add/delete and reset-to-defaults controls
 
 ## checkbox picker
@@ -37,6 +38,7 @@ this plugin adds editor commands you can bind to your own hotkeys (no default bi
 _To get the same icons as I have in the screenshot, see [my snippets repo](https://gitlab.com/minecraftpiston/obsidian-snippets)._
   
 - Works on task lines like `- [ ] item`
+- Can also promote regular bullet lines like `- item` (when enabled in settings)
 - Supports configurable Obsidian extended checkbox markers
 - Opens as a fuzzy picker modal
 - Also available from the editor right-click menu when cursor is on a checkbox line

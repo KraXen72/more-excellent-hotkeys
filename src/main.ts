@@ -64,7 +64,7 @@ export default class SmarterHotkeys extends Plugin {
 
 		this.registerEvent(this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor) => {
 			this.engine.setEditor(editor);
-			if (!this.engine.getCheckboxAtCursor()) return;
+			if (!this.engine.canChangeCheckboxAtCursor(this.settings.promoteRegularBulletPoints)) return;
 			menu.addItem((item) => item
 				.setTitle('Change checkbox type')
 				.setIcon('check-square')
@@ -91,10 +91,16 @@ export default class SmarterHotkeys extends Plugin {
 
 	openCheckboxTypePicker(editor: Editor) {
 		this.engine.setEditor(editor);
-		if (!this.engine.getCheckboxAtCursor()) {
+		if (!this.engine.canChangeCheckboxAtCursor(this.settings.promoteRegularBulletPoints)) {
 			new Notice('No checkbox found on the current line.');
 			return;
 		}
-		new CheckboxTypeSuggestModal(this.app, this.engine, editor, this.settings.extendedCheckboxes).open();
+		new CheckboxTypeSuggestModal(
+			this.app,
+			this.engine,
+			editor,
+			this.settings.extendedCheckboxes,
+			this.settings.promoteRegularBulletPoints,
+		).open();
 	}
 }

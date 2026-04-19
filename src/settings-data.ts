@@ -11,6 +11,7 @@ export function cloneCheckboxOptions(options: CheckboxOption[]): CheckboxOption[
 
 export const DEFAULT_SETTINGS: SmarterHotkeysSettings = {
 	useAsteriskForItalics: false,
+	promoteRegularBulletPoints: true,
 	extendedCheckboxes: cloneCheckboxOptions(DEFAULT_CHECKBOX_OPTIONS),
 };
 
