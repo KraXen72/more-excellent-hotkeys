@@ -44,8 +44,7 @@ export default class SmarterHotkeys extends Plugin {
 		this.engine = new TextTransformer(this.settings);
 
 		// This adds an editor command that can perform some operation on the current editor instance
-		for (const _op of TextTransformOperations) {
-			const op = _op as ValidOperations;
+		for (const op of TextTransformOperations) {
 			this.addCommand({
 				id: 'meh-' + op,
 				name: commandNames[op],

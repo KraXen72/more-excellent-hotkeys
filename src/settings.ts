@@ -47,7 +47,7 @@ export class SmarterHotkeysSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Promote regular bullet points')
-			.setDesc('Allow "Change checkbox type" to turn regular bullet points into task list items.')
+			.setDesc('Allow the change checkbox type command to turn regular bullet points into task list items.')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.promoteRegularBulletPoints)
 				.onChange(async (value) => {
@@ -98,7 +98,7 @@ export class SmarterHotkeysSettingTab extends PluginSettingTab {
 		markerWrap.createSpan({ cls: 'meh-checkbox-option-marker-suffix', text: ']' });
 
 		const labelInput = rowSetting.controlEl.createEl('input', { cls: 'meh-checkbox-option-label', type: 'text' });
-		labelInput.placeholder = 'description';
+		labelInput.placeholder = 'Description';
 		labelInput.value = option.label;
 
 		const addButton = rowSetting.controlEl.createEl('button', {

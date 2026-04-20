@@ -78,10 +78,9 @@ const styleOperations = [...Object.keys(baseStyleConfig), "italics"] as StyleOpe
 
 // for now, you have to manually update these
 const reg_marker_bare = "\\*|_|(?:==)|`|(?:%%)|(?:~~)|<u>|<\\/u>"; // markers
-const reg_word = "\\w+";
+const reg_word = "\\w+\\)?";
 const reg_open_paren = "\\((?=\\w)";
-const reg_close_paren = "(?<=\\w)\\)";
-const reg_char = `(${reg_word}|${reg_open_paren}|${reg_close_paren}|${reg_marker_bare})`; // characters considered word
+const reg_char = `(${reg_word}|${reg_open_paren}|${reg_marker_bare})`; // characters considered word
 
 const reg_before = new RegExp(`${reg_char}*$`);
 const reg_after = new RegExp(`^${reg_char}*`);
@@ -715,6 +714,7 @@ export class TextTransformer {
 		const coreStart = before.length;
 		const coreEnd = word.length - after.length;
 		const core = coreEnd >= coreStart ? word.slice(coreStart, coreEnd) : "";
+		if (core.length === 0) return word;
 		return before + this.#stripSupportedMarkers(core) + after;
 	}
 

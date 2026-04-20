@@ -11,11 +11,17 @@ class MockEditor {
 		this.editorContent = initialText.split('\n');
 		if (initialSelections) this.selections = initialSelections;
 	}
-	private getLinesRange(from: EditorPosition, to: EditorPosition): string[] {
-		return this.editorContent.slice(from.line, to.line + 1);
-	}
 	private rebuildContent(before: string[], replacement: string[], after: string[]) {
 		this.editorContent = [...before, ...replacement, ...after];
+	}
+	private comparePositions(a: EditorPosition, b: EditorPosition) {
+		if (a.line !== b.line) return a.line - b.line;
+		return a.ch - b.ch;
+	}
+	private normalizeRange(from: EditorPosition, to: EditorPosition) {
+		return this.comparePositions(from, to) <= 0
+			? { from, to }
+			: { from: to, to: from };
 	}
 
 	listSelections() { return this.selections; }
@@ -31,6 +37,10 @@ class MockEditor {
 		return this.getRange(anchor, head);
 	}
 	getRange(from: EditorPosition, to: EditorPosition) {
+		const normalized = this.normalizeRange(from, to);
+		from = normalized.from;
+		to = normalized.to;
+
 		if (from.line === to.line) {
 			return this.editorContent[from.line].slice(from.ch, to.ch);
 		}
@@ -44,58 +54,36 @@ class MockEditor {
 	replaceSelection(newText: string) {
 		if (!this.selections.length) return;
 		const { anchor, head } = this.selections[0];
-
-		// Handle the case where the selection spans a single line
-		if (anchor.line === head.line) {
-			const line = this.editorContent[anchor.line];
-			const before = line.slice(0, anchor.ch); // Text before the selection
-			const after = line.slice(head.ch); // Text after the selection
-			this.editorContent[anchor.line] = before + newText + after;
-
-			// Update the selection to reflect the new text's position
-			const newAnchorCh = anchor.ch + newText.length;
-			this.selections[0] = { anchor: { ...anchor, ch: newAnchorCh }, head: { ...head, ch: newAnchorCh } };
-		} else {
-			// Handle multi-line selection
-			const startLine = this.editorContent[anchor.line].slice(0, anchor.ch); // Text before selection in the start line
-			const endLine = this.editorContent[head.line].slice(head.ch); // Text after selection in the end line
-			const replacementLines = newText.split('\n');
-			replacementLines[0] = startLine + replacementLines[0];
-			replacementLines[replacementLines.length - 1] += endLine;
-
-			// Replace content between the selected lines
-			this.editorContent.splice(anchor.line, head.line - anchor.line + 1, ...replacementLines);
-
-			// Update the selection based on the newText length and position
-			const newLine = anchor.line + replacementLines.length - 1;
-			const newCh = replacementLines[replacementLines.length - 1].length - endLine.length;
-			this.selections[0] = {
-				anchor: { line: newLine, ch: newCh },
-				head: { line: newLine, ch: newCh },
-			};
-		}
-	}
-	// FIXME
-	replaceRange(replacement: string, from: EditorPosition, to?: EditorPosition): void {
-		if (!to) to = from;
-
-		// Get the lines before, within, and after the range
+		const { from, to } = this.normalizeRange(anchor, head);
 		const before = this.editorContent.slice(0, from.line);
 		const after = this.editorContent.slice(to.line + 1);
-		const rangeLines = this.getLinesRange(from, to);
+		const startLine = this.editorContent[from.line].slice(0, from.ch);
+		const endLine = this.editorContent[to.line].slice(to.ch);
+		const replacementLines = newText.split('\n');
+		replacementLines[0] = startLine + replacementLines[0];
+		replacementLines[replacementLines.length - 1] += endLine;
+		this.rebuildContent(before, replacementLines, after);
 
-		// Single-line replacement
-		if (from.line === to.line) {
-			const line = rangeLines[0];
-			const newLine =
-				line.slice(0, from.ch) + replacement + line.slice(to.ch);
-			this.rebuildContent(before, [newLine], after);
-		} else {
-			// Multi-line replacement
-			const startLine = rangeLines[0].slice(0, from.ch);
-			const endLine = rangeLines[rangeLines.length - 1].slice(to.ch);
-			this.rebuildContent(before, [startLine + replacement + endLine], after);
-		}
+		const newLine = from.line + replacementLines.length - 1;
+		const newCh = replacementLines[replacementLines.length - 1].length - endLine.length;
+		const cursor = { line: newLine, ch: newCh };
+		this.selections[0] = { anchor: cursor, head: cursor };
+	}
+
+	replaceRange(replacement: string, from: EditorPosition, to?: EditorPosition): void {
+		if (!to) to = from;
+		const normalized = this.normalizeRange(from, to);
+		from = normalized.from;
+		to = normalized.to;
+
+		const before = this.editorContent.slice(0, from.line);
+		const after = this.editorContent.slice(to.line + 1);
+		const startLine = this.editorContent[from.line].slice(0, from.ch);
+		const endLine = this.editorContent[to.line].slice(to.ch);
+		const replacementLines = replacement.split('\n');
+		replacementLines[0] = startLine + replacementLines[0];
+		replacementLines[replacementLines.length - 1] += endLine;
+		this.rebuildContent(before, replacementLines, after);
 	}
 	
 	setCursor(pos: EditorPosition | number, ch?: number): void {
@@ -625,5 +613,58 @@ describe('Multi-line Operations', () => {
 		editor.setSelection({ line: 0, ch: 7 }, { line: 0, ch: 7 });
 		transformer.transformText('removeFormatting');
 		assert.strictEqual(editor.getEditorContent(), "foo bar baz");
+	});
+});
+
+describe('edge-case text manipulation operations', () => {
+	it('italics: should wrap parenthesized word but keep trailing punctuation outside', () => {
+		const editor = setupTest("(word), next");
+		editor.setSelection({ line: 0, ch: 3 }, { line: 0, ch: 3 });
+
+		transformer.transformText('italics');
+		assert.strictEqual(editor.getEditorContent(), "_(word)_, next");
+	});
+
+	it('bold: should style link label without breaking link destination', () => {
+		const editor = setupTest("[label](https://example.com)");
+		editor.setSelection({ line: 0, ch: 3 }, { line: 0, ch: 3 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "[**label**](https://example.com)");
+	});
+
+	it('remove formatting: should preserve blank lines and indentation', () => {
+		const editor = setupTest("- **one**\n\n  - _two_  ");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 2, ch: 11 });
+
+		transformer.transformText('removeFormatting');
+		assert.strictEqual(editor.getEditorContent(), "- one\n\n  - two  ");
+	});
+
+	it('remove formatting: should clear supported markers in callouts but keep callout syntax', () => {
+		const editor = setupTest("> [!note] ==Title== and **strong**");
+		editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 32 });
+
+		transformer.transformText('removeFormatting');
+		assert.strictEqual(editor.getEditorContent(), "> [!note] Title and strong");
+	});
+
+	it('bold: should work when user selection is backwards', () => {
+		const editor = setupTest("reverse");
+		editor.setSelection({ line: 0, ch: 7 }, { line: 0, ch: 0 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**reverse**");
+	});
+
+	it('non-stackable toggle: should remove outer style first for explicit selection', () => {
+		const editor = setupTest("%%word%%");
+		editor.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 6 });
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "word");
+
+		transformer.transformText('bold');
+		assert.strictEqual(editor.getEditorContent(), "**word**");
 	});
 });
