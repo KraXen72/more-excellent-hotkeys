@@ -1,6 +1,6 @@
 {
 	"name": "more-excellent-hotkeys",
-	"version": "2.2.2",
+	"version": "2.2.3",
 	"description": "Smart quality-of-life hotkeys",
 	"main": "main.js",
 	"type": "module",
