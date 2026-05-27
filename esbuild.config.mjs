@@ -1,6 +1,9 @@
 import esbuild from "esbuild";
 import process from "process";
 import builtins from "builtin-modules";
+import path from "node:path";
+import fs from "node:fs";
+import manifest from './manifest.json' with { type: 'json' };
 
 const banner =
 `/*
@@ -11,11 +14,31 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = (process.argv[2] === "production");
 
-const context = await esbuild.context({
+// --- live refresh setup
+const vaultFolder = "/media/win/#blackhole/"
+const pluginFolder = path.resolve(vaultFolder, ".obsidian", "plugins", manifest.id)
+const hotreloadPath = path.resolve(pluginFolder, '.hotreload')
+const copyCandidates = ['styles.css', 'main.js', 'manifest.json']
+	.map(f => ({ 
+		bare: f,
+		src: path.resolve(import.meta.dirname, f),
+		dest: path.resolve(pluginFolder, f)
+	}))
+
+if (fs.existsSync(vaultFolder)) {
+	fs.mkdirSync(pluginFolder, { recursive: true });
+	fs.writeFileSync(hotreloadPath, '', { flag: 'a' }) // no-op if .hotreload exists
+}
+
+/** @type {import('esbuild').BuildOptions} */
+const config = {
 	banner: {
 		js: banner,
 	},
-	entryPoints: ["src/main.ts"],
+	entryPoints: {
+		main: "src/main.ts",
+		styles: "src/styles.css"
+	},
 	bundle: true,
 	external: [
 		"obsidian",
@@ -37,9 +60,31 @@ const context = await esbuild.context({
 	logLevel: "info",
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,
-	outfile: "main.js",
+	outdir: "./",
 	minify: prod,
-});
+	plugins: [
+		{
+			name: 'copy-to-vault',
+			setup(build) {
+				build.onEnd(r => {
+					if (r.errors.length > 0) {
+						console.error(r.errors.join("\n")); 
+						return;
+					}
+					copyCandidates.forEach(({ src, dest }) => {
+						if (!fs.existsSync(src)) {
+							console.error(`file ${src} doesn't exist! skipping copy...`);
+							return; 
+						}
+						fs.copyFileSync(src, dest)
+					})
+				})
+			}
+		}
+	]
+}
+
+const context = await esbuild.context(config);
 
 if (prod) {
 	await context.rebuild();
